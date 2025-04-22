@@ -1,0 +1,11 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.env
+docker-compose.yml # 必要に応じて
+README.md # 必要に応じて
