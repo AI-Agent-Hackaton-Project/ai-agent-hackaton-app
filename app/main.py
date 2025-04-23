@@ -7,7 +7,7 @@ def main():
     st.title('シンプルなStreamlitアプリ')
 
     st.write('---')
-    st.write('アプリは以上です。')
+    st.write('develop branch!')
 
 if __name__ == "__main__":
     main()
