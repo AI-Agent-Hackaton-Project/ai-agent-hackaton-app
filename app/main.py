@@ -57,6 +57,5 @@ def main():
             st.error(f"Vertex AI への問い合わせ中にエラーが発生しました: {e}")
             st.warning("もう一度試すか、少し待ってから再度入力してください。")
 
-
 if __name__ == "__main__":
     main()

@@ -1,0 +1,77 @@
+{
+  // エディター関連設定
+  "editor.fontSize": 16, // エディターの基本フォントサイズを16に設定します。
+  "editor.fontVariations": false, // フォントスタイルのバリエーションを使用しません。
+  "editor.defaultFormatter": "ms-python.black-formatter", // デフォルトのコードフォーマッターにBlackを指定します。
+  "editor.autoClosingBrackets": "never", // 自動括弧閉じ機能を無効にします。
+  "editor.autoClosingQuotes": "never", // 自動引用符閉じ機能を無効にします。
+  "editor.inlineSuggest.enabled": true, // インライン自動補完を有効にします。
+  "editor.parameterHints.enabled": true, // 関数呼び出し時にパラメータヒントを表示します。
+  "editor.quickSuggestions": {
+    "other": true, // その他のテキストでは提案を有効にします。
+    "comments": false, // コメント内では提案を無効にします。
+    "strings": false // 文字列内では提案を無効にします。
+  },
+  "editor.quickSuggestionsDelay": 10, // クイック提案が表示されるまでの遅延時間（ミリ秒）を設定します。
+  "editor.suggestOnTriggerCharacters": true, // トリガー文字入力時に自動で提案を表示します。
+  "editor.suggest.localityBonus": true, // カーソル周辺の単語を優先的に提案します。
+  "editor.wordBasedSuggestions": "matchingDocuments", // ドキュメント内のマッチした単語に基づく提案を有効にします。
+  "editor.acceptSuggestionOnCommitCharacter": true, // コミット文字入力時に提案を受け入れます。
+  "editor.acceptSuggestionOnEnter": "on", // Enterキー押下時に提案を受け入れます。
+
+  // ターミナル設定
+  "terminal.integrated.fontSize": 14, // ターミナルのフォントサイズを14に設定します。
+  "terminal.integrated.inheritEnv": false, // ターミナルでシステム環境変数を引き継ぎません。
+
+  // Git設定
+  "git.autofetch": true, // Gitリポジトリを自動フェッチします。
+
+  // マークダウン設定
+  "markdown.preview.fontSize": 20, // Markdownプレビューのフォントサイズを20に設定します。
+  "markdown.styles": [
+    // Markdown用スタイルシートのURLを設定します。
+    "https://use.fontawesome.com/releases/v5.7.1/css/all.css",
+    "markdown-stype.css"
+  ],
+
+  // ソースコード管理設定
+  "scm.inputFontSize": 20, // ソースコード管理入力欄のフォントサイズを20に設定します。
+
+  // ワークベンチ設定
+  "workbench.startupEditor": "none", // VSCode起動時にエディターを開きません。
+
+  // セキュリティ設定
+  "security.workspace.trust.untrustedFiles": "open", // 信頼されていないファイルを自動的に開きます。
+
+  // エクスプローラー設定
+  "explorer.confirmDelete": false, // ファイル削除時に確認メッセージを表示しません。
+  "explorer.compactFolders": false, // フォルダーをコンパクト表示しません。
+  "explorer.confirmDragAndDrop": false, // ドラッグ＆ドロップ時に確認メッセージを表示しません。
+  "explorer.confirmPasteNative": false, // ネイティブファイルの貼り付け時に確認メッセージを表示しません。
+
+  // ファイル設定
+  "files.autoSave": "afterDelay", // ファイル変更後、一定時間経過で自動保存します。
+
+  // ブレッドクラム設定
+  "breadcrumbs.enabled": false, // パスナビゲーションを無効にします。
+
+  // Jupyter設定
+  "jupyter.themeMatplotlibPlots": true, // JupyterのMatplotlibプロットをテーマに合わせてカラーリングします。
+  "jupyter.askForKernelRestart": false, // Jupyterカーネル再起動の確認を無効にします。
+  "jupyter.widgetScriptSources": [
+    // Jupyterウィジェット用スクリプトソースを設定します。
+    "jsdelivr.com",
+    "unpkg.com"
+  ],
+
+  // CSS設定
+  "css.lint.emptyRules": "ignore", // CSSリントで空のルールを無視します。
+
+  // 言語別設定（Python）
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.formatOnType": true,
+    "editor.formatOnSave": true,
+    "editor.parameterHints.enabled": true
+  }
+}
