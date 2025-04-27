@@ -1,7 +1,7 @@
 COMPOSE = docker-compose
 VENV_DIR = venv
 
-.PHONY: up build down restart logs venv start requirements-update
+.PHONY: up build down restart logs venv start
 
 ## コンテナをビルドしてバックグラウンドで起動する
 up:
@@ -32,18 +32,3 @@ venv:
 		python3 -m venv $(VENV_DIR); \
 	fi
 	$(VENV_DIR)/bin/pip install --upgrade pip
-
-## requirements.txtを更新し、変更があった場合のみコミット/プッシュ
-requirements-update:
-	@if git diff --quiet requirements.txt; then \
-		echo "🟢 requirements.txt に変更はありません。"; \
-	else \
-		echo "🔵 requirements.txt が変更されました。更新を実行します。"; \
-		if [ ! -d "$(VENV_DIR)" ]; then \
-			python3 -m venv $(VENV_DIR); \
-		fi; \
-		$(VENV_DIR)/bin/pip install --upgrade pip; \
-		$(VENV_DIR)/bin/pip install -r requirements.txt; \
-		. $(VENV_DIR)/bin/activate && pip freeze > requirements.txt; \
-	fi
-
