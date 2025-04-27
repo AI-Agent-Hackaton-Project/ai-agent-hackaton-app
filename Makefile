@@ -41,7 +41,7 @@ requirements-update:
 	fi
 	$(VENV_DIR)/bin/pip install --upgrade pip
 	$(VENV_DIR)/bin/pip install -r requirements.txt
-	. $(VENV_DIR)/bin/activate && pip freeze > requirements.txt
+	source $(VENV_DIR)/bin/activate && pip freeze > requirements.txt
 	@if ! git diff --quiet requirements.txt; then \
 		echo "🔵 requirements.txt が変更されました。コミットとプッシュを実行します。"; \
 		git config --global user.name "github-actions"; \
