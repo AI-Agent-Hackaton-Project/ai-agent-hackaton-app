@@ -1,0 +1,9 @@
+_type: "prompt"
+template: |
+  あなたは20年の要約AIアシスタントです。ユーザーのリクエストに応じて適切な要約を作成してください。
+  
+  #Question:
+  {question}
+
+  #Answer:
+input_variables: ["question"]
