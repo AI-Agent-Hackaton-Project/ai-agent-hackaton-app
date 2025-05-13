@@ -1,5 +1,13 @@
+import streamlit as st
+
+
 def main():
-    return ""
+    """
+    Streamlitアプリケーションのメイン処理を行う関数
+    """
+    st.title("シンプルなStreamlitアプリ")
+
+    st.write("---")
 
 
 if __name__ == "__main__":
