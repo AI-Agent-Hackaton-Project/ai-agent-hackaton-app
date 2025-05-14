@@ -1,17 +1,28 @@
 import streamlit as st
-from app.config.env_config import get_env_config
+from config.env_config import get_env_config
 from langchain_google_vertexai import ChatVertexAI
 import json
 from operator import itemgetter
-from langchain_community.retrievers import TavilySearchAPIRetriever
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from config.prompt_config import GENERATE_ARTICLE_PROMPT
+from langchain_core.runnables import RunnableLambda
+from typing import List
+from pydantic import BaseModel, Field
+
+
+class ArticleSection(BaseModel):
+    heading: str = Field(description="見出し")
+    content: str = Field(description="本文")
+
+
+class Article(BaseModel):
+    title: str = Field(description="記事のタイトル")
+    block: List[str] = Field(description="記事の各ブロックの本文リスト")
 
 
 def generate_article(selected_prefecture):
     settings = get_env_config()
-    retriever = TavilySearchAPIRetriever(k=3)
 
     llm = ChatVertexAI(
         model=settings["model_name"],
@@ -27,11 +38,8 @@ def generate_article(selected_prefecture):
         [("system", system_template), ("user", GENERATE_ARTICLE_PROMPT)]
     )
 
-    retriever_chain = itemgetter("selected_prefecture") | retriever
-
     chain = (
         {
-            "context": retriever_chain,
             "selected_prefecture": itemgetter("selected_prefecture"),
         }
         | prompt
