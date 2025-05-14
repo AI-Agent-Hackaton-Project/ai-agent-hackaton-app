@@ -15,5 +15,6 @@ def get_env_config():
         "gcp_project_id": gcp_project_id,
         "gcp_location": gcp_location,
         "model_name": model_name,
+        "max_output_tokens": 4096,
     }
     return config_data
