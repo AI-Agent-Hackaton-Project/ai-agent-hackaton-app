@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import os
 
 
-def get_config():
+def get_env_config():
     load_dotenv()
     gcp_project_id = os.getenv("GCP_PROJECT_ID")
     gcp_location = os.getenv("GCP_LOCATION")

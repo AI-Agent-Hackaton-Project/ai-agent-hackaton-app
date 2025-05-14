@@ -1,13 +1,13 @@
 import streamlit as st
-from config.config import get_config
+from config.config import get_env_config
 from langchain_google_vertexai import ChatVertexAI
 
 
 def generate_article():
-    config = get_config()
+    settings = get_env_config()
 
     llm = ChatVertexAI(
-        model=config["model_name"],
+        model=settings["model_name"],
         temperature=0,
         max_tokens=None,
         max_retries=6,
