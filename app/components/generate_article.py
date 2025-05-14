@@ -1,4 +1,3 @@
-from vertexai.generative_models import GenerativeModel
 import streamlit as st
 from config.config import get_config
 from langchain_google_vertexai import ChatVertexAI

@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1 \
     POETRY_HOME="/opt/poetry" \
     POETRY_VIRTUALENVS_CREATE=false
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get install -y --no-install-recommends curl build-essential \
     && curl -sSL https://install.python-poetry.org | python - \
     && apt-get remove -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* \
     && ln -s /opt/poetry/bin/poetry /usr/local/bin/poetry
