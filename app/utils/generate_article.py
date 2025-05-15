@@ -2,10 +2,14 @@ import streamlit as st
 from config.env_config import get_env_config
 from langchain_google_vertexai import ChatVertexAI
 
+from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.exceptions import OutputParserException
+import traceback
+
 from operator import itemgetter
 
 from langchain_core.prompts import ChatPromptTemplate
-from config.prompt_config import (
+from prompts.prompt_config import (
     GENERATE_ARTICLE_PROMPT,
 )
 from typing import List
@@ -17,23 +21,13 @@ class Article(BaseModel):
     block: List[str] = Field(description="記事の各ブロックの本文リスト")
 
 
-# PydanticOutputParser と専用の例外をインポート
-from langchain_core.output_parsers import PydanticOutputParser
-from langchain_core.exceptions import OutputParserException
-import traceback  # 予期せぬエラーのトレースバック用
-
-
-def generate_article(selected_prefecture: str) -> dict:  
+def generate_article(selected_prefecture: str) -> dict:
     settings = get_env_config()
 
     llm = ChatVertexAI(
-        model_name=settings.get(
-            "model_name", "gemini-pro"
-        ), 
+        model_name=settings.get("model_name", "gemini-pro"),
         temperature=0,
-        max_output_tokens=settings.get(
-            "max_output_tokens", 4096
-        ), 
+        max_output_tokens=settings.get("max_output_tokens", 4096),
         max_retries=6,
         stop=None,
     )
