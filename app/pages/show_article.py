@@ -22,14 +22,14 @@ if st.button(f"{selected_prefecture} の記事を生成する ✨", type="primar
     if not selected_prefecture:
         st.warning("都道府県を選択してください。")
     else:
-        st.info(f"「{selected_prefecture}」の記事生成を開始します...")  # 処理開始を通知
-        article_data = None  # article_dataを初期化
+        st.info(f"「{selected_prefecture}」の記事生成を開始します...")
+        article_data = None
         with st.spinner(
             f"AIが {selected_prefecture} の歴史に関する記事を執筆中です... しばらくお待ちください ⏳"
         ):
             try:
                 article_data = generate_article(selected_prefecture)
-                st.success("generate_article関数が完了しました。")  # 完了したことを通知
+                st.success("generate_article関数が完了しました。")
 
                 # --- ここからデバッグ情報表示 ---
                 st.subheader("デバッグ情報: generate_articleからの返り値")
@@ -50,14 +50,13 @@ if st.button(f"{selected_prefecture} の記事を生成する ✨", type="primar
                 st.text_area(
                     "エラー詳細 (Traceback)", traceback.format_exc(), height=300
                 )
-                # エラーが発生した場合、article_dataにエラー情報を含めて後続処理でエラー表示できるようにする
                 article_data = {
                     "error": "Exception in generate_article",
                     "details": str(e),
                     "raw_traceback": traceback.format_exc(),
                 }
 
-        if article_data is not None:  # Noneでないことを確認
+        if article_data is not None:
             if "error" not in article_data:
                 title_text = article_data.get("title")
                 if not title_text:
@@ -71,8 +70,7 @@ if st.button(f"{selected_prefecture} の記事を生成する ✨", type="primar
                         st.markdown(f"#### 第 {i+1} ブロック")
                         st.markdown(
                             block_content
-                            if block_content
-                            and block_content.strip()  # Noneや空文字列でないことを確認
+                            if block_content and block_content.strip()
                             else "このブロックには内容が記述されていません。"
                         )
                         if i < len(article_data["block"]) - 1:
@@ -88,20 +86,15 @@ if st.button(f"{selected_prefecture} の記事を生成する ✨", type="primar
                 with st.expander("生成されたJSONデータを見る (RAW) 🔍"):
                     st.json(article_data)
             else:
-                # エラー情報がarticle_dataに含まれている場合の表示
                 st.error(
                     f"記事生成中にエラーが発生しました: {article_data.get('error', '不明なエラー')}"
                 )
                 if "details" in article_data:
                     st.warning(f"詳細: {article_data['details']}")
-                if (
-                    "raw_traceback" in article_data
-                ):  # try-exceptで補足したトレースバック
+                if "raw_traceback" in article_data:
                     with st.expander("エラーのトレースバックを見る"):
                         st.text_area("", article_data["raw_traceback"], height=200)
-                elif (
-                    "raw_response" in article_data
-                ):  # generate_article内部でセットされたraw_response
+                elif "raw_response" in article_data:
                     with st.expander("LLMからの生のレスポンスを見る"):
                         st.text_area("", article_data["raw_response"], height=200)
 
