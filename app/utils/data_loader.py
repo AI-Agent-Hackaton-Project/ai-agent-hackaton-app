@@ -10,8 +10,9 @@ def load_and_prepare_geojson():
         gpd.GeoDataFrame: 準備されたGeoDataFrame。
     """
 
-    # api: "https://raw.githubusercontent.com/dataofjapan/land/master/japan.geojson"
-    gdf = gpd.read_file("app/data/japan.geojson")
+    gdf = gpd.read_file(
+        "https://raw.githubusercontent.com/dataofjapan/land/master/japan.geojson"
+    )
     original_crs = gdf.crs
 
     # # パフォーマンス向上のため、ジオメトリを積極的に簡素化 (許容誤差を増やす)
