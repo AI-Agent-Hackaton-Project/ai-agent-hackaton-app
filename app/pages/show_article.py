@@ -32,7 +32,6 @@ if st.button(f"{selected_prefecture} の記事を生成する ✨", type="primar
             f"AIが {selected_prefecture} の歴史に関する記事を執筆中です... しばらくお待ちください ⏳"
         ):
             try:
-                # generate_article を呼び出し、結果を article_generation_result に格納
                 article_generation_result = generate_article(selected_prefecture)
                 st.success("generate_article関数が完了しました。")
 
@@ -46,7 +45,6 @@ if st.button(f"{selected_prefecture} の記事を生成する ✨", type="primar
                     st.write(f"返り値の型: {type(article_generation_result)}")
                     st.write(f"返り値の内容: {str(article_generation_result)}")
                 st.write("--- デバッグ情報ここまで ---")
-                # --- デバッグ情報表示ここまで ---
 
             except Exception as e:
                 st.error(

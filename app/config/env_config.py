@@ -18,6 +18,6 @@ def get_env_config():
         "google_api_key": os.getenv("GOOGLE_API_KEY"),
         "google_cse_id": os.getenv("GOOGLE_CSE_ID"),
         # 検索結果として上位何件を取得するかを設定
-        "search_num_results": 2
+        "search_num_results": 2,
     }
     return config_data
