@@ -59,7 +59,7 @@ def generate_article(selected_prefecture: str) -> dict:
             f"Google検索中にエラーが発生しました: {e}. 検索なしで記事を生成します。"
         )
         search_results_str = "検索中にエラーが発生したため、追加情報はありません。"
-        traceback.print_exc()
+        traceback.print_exc() 
 
     llm = ChatVertexAI(
         model_name=settings.get("model_name", "gemini-1.0-pro-001"),
