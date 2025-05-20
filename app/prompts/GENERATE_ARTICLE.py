@@ -7,7 +7,7 @@ GENERATE_ARTICLE_PROMPT = """
 {search_results}
 
 ## テーマ
-{selected_prefecture}
+{topic}
 
 ### 記事作成の詳細指示
 - 読者層: 若い層
@@ -19,10 +19,10 @@ GENERATE_ARTICLE_PROMPT = """
 
 ## ステップ
 1. **タイトル設定**
-   - 記事のタイトルは **{selected_prefecture}の歴史と最新情報** にする。(これはPydanticモデルの 'title' に対応します)
+   - 記事のタイトルは **{topic}の歴史と最新情報** にする。(これはPydanticモデルの 'title' に対応します)
 
 2. **第1ブロックの作成** (これはPydanticモデルの 'block' リストの最初の要素に対応します)
-  - 検索結果と{selected_prefecture}の情報を元に、内容を深掘りし、独自の視点を取り入れる。
+  - 検索結果と{topic}の情報を元に、内容を深掘りし、独自の視点を取り入れる。
   - 信頼性のある情報を含める。
   - SEOを意識して 自然な形でキーワードを盛り込む。
   - 読みやすさを重視し、短い段落を適宜使用する。

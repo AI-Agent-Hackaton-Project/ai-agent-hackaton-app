@@ -19,6 +19,8 @@ streamlit-folium = "^0.25.0"
 folium = "^0.19.5"
 geopandas = "^1.0.1"
 streamlit-geolocation = "^0.0.10"
+langgraph = "^0.4.5"
+pygraphviz = "^1.14"
 
 
 [build-system]
