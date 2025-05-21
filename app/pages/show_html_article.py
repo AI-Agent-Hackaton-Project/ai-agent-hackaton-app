@@ -22,7 +22,6 @@ with st.sidebar:
 
 
 current_script_dir = os.path.dirname(os.path.abspath(__file__))
-articles_output_dir = os.path.join(current_script_dir, "generated_articles")
 
 # 記事生成ボタン
 if st.button("📝 記事を生成する", type="primary", use_container_width=True):
@@ -30,9 +29,7 @@ if st.button("📝 記事を生成する", type="primary", use_container_width=T
         st.warning("⚠️ トピックが入力されていません。")
     else:
         with st.spinner(f"「{user_topic}」に関する記事を生成中です..."):
-            result = generate_article_workflow(
-                user_topic, output_dir=articles_output_dir
-            )
+            result = generate_article_workflow(user_topic)
 
         st.markdown("---")
         st.subheader("📄 生成結果")
@@ -43,12 +40,8 @@ if st.button("📝 記事を生成する", type="primary", use_container_width=T
 
             # 生成された記事の内容をプレビュー表示 (オプション)
             try:
-                with open(result.get("output_file_path"), "r", encoding="utf-8") as f:
-                    article_content_preview = f.read()
-                with st.expander("📄 生成された記事のプレビューを見る"):
-                    st.text_area(
-                        "記事内容", article_content_preview, height=300, disabled=True
-                    )
+                article_content_preview = result.get("html_output")
+                st.html(article_content_preview)
             except Exception as e:
                 st.warning(f"⚠️ 記事ファイルの読み込み中にエラーが発生しました: {e}")
 

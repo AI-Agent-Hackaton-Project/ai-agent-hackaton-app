@@ -1,8 +1,6 @@
 import os
-import uuid  # uuidは現状コードでは直接使われていませんが、将来的な拡張やログのために残しておきます
-import json
 from typing import TypedDict, List, Dict, Any
-import traceback  # エラーハンドリングのためインポート
+import traceback
 
 from langchain_google_vertexai import ChatVertexAI
 
@@ -21,7 +19,6 @@ from prompts.GENERATE_ARTICLE import (
 )
 from config.env_config import get_env_config
 
-# Google検索とWebスクレイピング用ツール
 from langchain_google_community.search import GoogleSearchAPIWrapper
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_community.document_transformers import BeautifulSoupTransformer
@@ -38,44 +35,40 @@ class Article(BaseModel):
 
 # --- 状態の定義 ---
 class AgentState(TypedDict):
-    topic: str  # 記事のトピック
-    search_query: str  # 生成された検索クエリ
-    raw_search_results: List[Dict[str, Any]]  # Google検索の生の結果
-    scraped_context: str  # スクレイピング・整形されたコンテキスト
-    generated_article_json: Dict[str, Any]  # LLMによって生成された記事のJSON表現
-    initial_article_title: str  # 初期生成された記事のタイトル
-    initial_article_content: str  # 初期生成された記事の本文 (ブロックを結合)
-    revised_article: str  # 添削された記事
-    html_output: str  # 最終的なHTML出力
-    error: str | None  # エラーメッセージ
+    topic: str
+    search_query: str
+    raw_search_results: List[Dict[str, Any]]
+    scraped_context: str
+    generated_article_json: Dict[str, Any]
+    initial_article_title: str
+    initial_article_content: str
+    revised_article: str
+    html_output: str  # 生成されたHTMLコンテンツはここに格納される
+    error: str | None
 
 
 def generate_article_workflow(
-    topic_input: str, output_dir: str = "."
-) -> Dict[str, Any]:
+    topic_input: str,
+) -> Dict[str, Any]:  # ★ output_dir 引数を削除
     """
-    指定されたトピックに基づいて記事を生成し、HTMLファイルとして保存するワークフローを実行します。
+    指定されたトピックに基づいて記事を生成するワークフローを実行します。
+    HTMLコンテンツは返り値の辞書に含まれます。
 
     Args:
         topic_input (str): 記事を生成するトピック。
-        output_dir (str, optional): 生成されたHTMLファイルを保存するディレクトリ。
-                                    デフォルトはカレントディレクトリ。
 
     Returns:
         Dict[str, Any]: ワークフローの実行結果。以下のキーを含む可能性があります:
             - "success" (bool): 処理が成功したかどうか。
             - "topic" (str): 入力されたトピック。
-            - "output_file_path" (str | None): 生成されたHTMLファイルのパス。エラー時はNone。
+            - "html_output" (str | None): 生成されたHTMLコンテンツ。エラー時はNoneの場合あり。
             - "error_message" (str | None): エラーが発生した場合のメッセージ。成功時はNone。
             - "final_state_summary" (Dict | None): 最終状態の主要な情報の要約（デバッグ用）。
     """
     print(f"\n--- 「{topic_input}」に関する記事生成を開始します ---")
-    print(f"--- 出力先ディレクトリ: {os.path.abspath(output_dir)} ---")
+    # print(f"--- 出力先ディレクトリ: ... ---") # ★ ファイル保存しないのでこの行は不要
 
-    # --- 設定の読み込み ---
     settings = get_env_config()
-
-    # --- 必須設定のチェック ---
     google_api_key = settings.get("google_api_key")
     google_cse_id = settings.get("google_cse_id")
 
@@ -85,12 +78,11 @@ def generate_article_workflow(
         return {
             "success": False,
             "topic": topic_input,
-            "output_file_path": None,
+            "html_output": None,  # ★
             "error_message": error_msg,
             "final_state_summary": None,
         }
 
-    # --- LLMとツールの初期化 ---
     try:
         llm = ChatVertexAI(
             model_name=settings.get("model_name", "gemini-1.0-pro-001"),
@@ -111,12 +103,12 @@ def generate_article_workflow(
         return {
             "success": False,
             "topic": topic_input,
-            "output_file_path": None,
+            "html_output": None,  # ★
             "error_message": error_msg,
             "final_state_summary": None,
         }
 
-    # --- ノード定義 (内部関数として定義) ---
+    # --- ノード定義 (変更なし) ---
     def generate_search_query_node(state: AgentState) -> AgentState:
         print("--- ステップ1a: 検索クエリ生成 ---")
         topic = state["topic"]
@@ -158,14 +150,17 @@ def generate_article_workflow(
         max_content_length_per_page = settings.get(
             "max_content_length_per_page_scrape", 1500
         )
+        print(f"受け取った検索結果の数: {len(search_results_list)}")
+        if search_results_list:
+            print(f"最初の検索結果のサンプル: {search_results_list[0]}")
 
         if not search_results_list:
+            print("検索結果が空のため、スクレイピングをスキップします。")
             return {
                 **state,
                 "scraped_context": "関連情報は見つかりませんでした。",
                 "error": None,
             }
-
         print(
             f"検索結果から上位{len(search_results_list)}件のウェブページを読み込んでいます..."
         )
@@ -177,29 +172,56 @@ def generate_article_workflow(
                 try:
                     print(f"  読み込み中 ({i+1}/{len(search_results_list)}): {link}")
                     loader = WebBaseLoader(
-                        web_path=link, requests_kwargs={"timeout": 10}
+                        web_path=link,
+                        requests_kwargs={
+                            "timeout": 20,
+                            "headers": {
+                                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                            },
+                        },
                     )
                     documents = loader.load()
+                    print(
+                        f"    URL: {link} - loader.load() 結果のドキュメント数: {len(documents)}"
+                    )
                     if documents:
+                        print(
+                            f"    URL: {link} - WebBaseLoaderで取得した最初のドキュメントの先頭100文字:\n{documents[0].page_content[:100]}"
+                        )
                         bs_transformer = BeautifulSoupTransformer()
                         docs_transformed = bs_transformer.transform_documents(
                             documents,
                             tags_to_extract=[
+                                "div",
                                 "p",
                                 "h1",
                                 "h2",
                                 "h3",
                                 "li",
-                                "span",
                                 "article",
+                                "main",
+                                "section",
                             ],
                         )
-                        page_content = " ".join(
+                        print(
+                            f"    URL: {link} - bs_transformer.transform_documents() 結果のドキュメント数: {len(docs_transformed)}"
+                        )
+                        page_content_after_transform = " ".join(
                             [doc.page_content for doc in docs_transformed]
                         )
-                        shortened_content = page_content[
+                        print(
+                            f"    URL: {link} - BeautifulSoupTransformer適用後のコンテンツ長: {len(page_content_after_transform)}"
+                        )
+                        if page_content_after_transform:
+                            print(
+                                f"    URL: {link} - BeautifulSoupTransformer適用後のコンテンツ先頭100文字:\n{page_content_after_transform[:100]}"
+                            )
+                        shortened_content = page_content_after_transform[
                             :max_content_length_per_page
                         ].strip()
+                        print(
+                            f"    URL: {link} - 短縮後のコンテンツ長: {len(shortened_content)}"
+                        )
                         if shortened_content:
                             scraped_contents.append(
                                 f"参照元URL: {link}\nタイトル: {title}\n内容:\n{shortened_content}"
@@ -209,30 +231,37 @@ def generate_article_workflow(
                             )
                         else:
                             scraped_contents.append(
-                                f"参照元URL: {link}\nタイトル: {title}\n概要: {snippet}\n(主要コンテンツ抽出失敗)"
+                                f"参照元URL: {link}\nタイトル: {title}\n概要: {snippet}\n(主要コンテンツ抽出失敗、または抽出後コンテンツが空)"
                             )
-                            print(f"    -> 主要コンテンツ抽出失敗、スニペット利用")
+                            print(
+                                f"    -> 主要コンテンツ抽出失敗 (抽出後コンテンツが空)、スニペット利用"
+                            )
                     else:
                         scraped_contents.append(
-                            f"参照元URL: {link}\nタイトル: {title}\n概要: {snippet}\n(コンテンツ取得失敗: ドキュメントなし)"
+                            f"参照元URL: {link}\nタイトル: {title}\n概要: {snippet}\n(コンテンツ取得失敗: WebBaseLoaderがドキュメントを返さず)"
                         )
-                        print(f"    -> コンテンツ取得失敗 (ドキュメントなし)")
+                        print(
+                            f"    -> コンテンツ取得失敗 (WebBaseLoaderがドキュメントを返さず)、スニペット利用"
+                        )
                 except Exception as e_scrape:
                     print(
-                        f"    -> URLからのコンテンツ読み込みエラー: {link}, エラー: {e_scrape}"
+                        f"  [詳細エラー] URLからのコンテンツ読み込み/処理エラー: {link}"
                     )
+                    traceback.print_exc()
                     scraped_contents.append(
-                        f"参照元URL: {link}\nタイトル: {title}\n概要: {snippet}\n(コンテンツの読み込みに失敗しました: {type(e_scrape).__name__})"
+                        f"参照元URL: {link}\nタイトル: {title}\n概要: {snippet}\n(コンテンツの読み込み/処理中にエラーが発生しました: {type(e_scrape).__name__})"
                     )
             else:
+                print(f"  URLが提供されていないためスキップ: タイトル '{title}'")
                 scraped_contents.append(f"タイトル: {title}\n概要: {snippet} (URLなし)")
-
         search_context_str = (
             "\n\n===\n\n".join(scraped_contents)
             if scraped_contents
             else "関連性の高いウェブページのコンテンツは見つかりませんでした。"
         )
-        print("ウェブページ読み込み完了。")
+        print(
+            f"ウェブページ読み込み完了。最終的なscraped_contextの先頭200文字: {search_context_str[:200]}"
+        )
         return {**state, "scraped_context": search_context_str, "error": None}
 
     def generate_structured_article_node(state: AgentState) -> AgentState:
@@ -319,53 +348,65 @@ def generate_article_workflow(
             )
         elif not html_article_content:
             html_article_content = "記事が生成されませんでした。"
-
-        # ★ 画像関連のロジックを削除 (image_url, image_alt_text)
         try:
             paragraphs = html_article_content.strip().split("\n\n")
             article_html_paragraphs = "".join(
                 [f"<p>{p.strip()}</p>\n" for p in paragraphs if p.strip()]
             )
-            # ★ HTMLテンプレートから画像関連部分を削除
-            html_output = f"""<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>{html_title}</title><style>body {{ font-family: 'Helvetica Neue', Arial, sans-serif; line-height: 1.8; margin: 0; padding: 0; background-color: #f9f9f9; color: #333; }} .container {{ max-width: 800px; margin: 40px auto; background-color: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.08); }} h1 {{ font-size: 2.5em; color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 15px; margin-top: 0; margin-bottom: 25px; }} p {{ margin-bottom: 1.5em; font-size: 1.1em; color: #555; }}</style></head><body><div class="container"><h1>{html_title}</h1>{article_html_paragraphs}</div></body></html>"""
+            html_output_content = f"""<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>{html_title}</title><style>body {{ font-family: 'Helvetica Neue', Arial, sans-serif; line-height: 1.8; margin: 0; padding: 0; background-color: #f9f9f9; color: #333; }} .container {{ max-width: 800px; margin: 40px auto; background-color: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.08); }} h1 {{ font-size: 2.5em; color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 15px; margin-top: 0; margin-bottom: 25px; }} p {{ margin-bottom: 1.5em; font-size: 1.1em; color: #555; }}</style></head><body><div class="container"><h1>{html_title}</h1>{article_html_paragraphs}</div></body></html>"""
             print("HTML整形完了。")
-            return {**state, "html_output": html_output, "error": state.get("error")}
+            # state["html_output"] に整形済みHTMLを格納
+            return {
+                **state,
+                "html_output": html_output_content,
+                "error": state.get("error"),
+            }
         except Exception as e:
             print(f"HTML整形中にエラーが発生しました: {e}")
             traceback.print_exc()
             current_error = state.get("error")
             html_error_msg = f"HTML整形エラー: {str(e)}"
-            final_error = (
+            final_error_msg = (
                 f"{current_error}\n{html_error_msg}"
                 if current_error
                 else html_error_msg
             )
-            html_error_output = f"<!DOCTYPE html><html lang='ja'><head><title>エラー</title></head><body><h1>HTML整形中にエラーが発生しました</h1><p><strong>エラー詳細:</strong></p><pre>{final_error}</pre></body></html>"
-            return {**state, "html_output": html_error_output, "error": final_error}
+            html_error_output_content = f"<!DOCTYPE html><html lang='ja'><head><title>エラー</title></head><body><h1>HTML整形中にエラーが発生しました</h1><p><strong>エラー詳細:</strong></p><pre>{final_error_msg}</pre></body></html>"
+            return {
+                **state,
+                "html_output": html_error_output_content,
+                "error": final_error_msg,
+            }
 
     def error_handler_node(state: AgentState) -> AgentState:
         print(f"--- エラー発生 (エラーハンドラノード) ---")
         error_message = state.get("error", "不明なエラー")
         print(f"エラー内容: {error_message}")
-        html_error_output = f"""<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>処理エラー</title></head><body><h1>記事生成プロセスでエラーが発生しました</h1><p><strong>エラーメッセージ:</strong></p><pre>{error_message}</pre><hr><p><strong>状態情報 (一部):</strong></p><pre>トピック: {state.get("topic")}\n検索クエリ: {state.get("search_query")}\nスクレイプコンテキストの有無: {"あり" if state.get("scraped_context") else "なし"}\n初期記事タイトルの有無: {"あり" if state.get("initial_article_title") else "なし"}</pre></body></html>"""
-        return {**state, "html_output": html_error_output}
+        # エラー時もhtml_outputにエラー情報をHTMLとして格納
+        html_error_output_content = f"""<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>処理エラー</title></head><body><h1>記事生成プロセスでエラーが発生しました</h1><p><strong>エラーメッセージ:</strong></p><pre>{error_message}</pre><hr><p><strong>状態情報 (一部):</strong></p><pre>トピック: {state.get("topic")}\n検索クエリ: {state.get("search_query")}\nスクレイプコンテキストの有無: {"あり" if state.get("scraped_context") else "なし"}\n初期記事タイトルの有無: {"あり" if state.get("initial_article_title") else "なし"}</pre></body></html>"""
+        return {
+            **state,
+            "html_output": html_error_output_content,
+        }  # errorキーはそのまま
 
-    # --- グラフ構築 ---
+    # --- グラフ構築 (変更なし) ---
     workflow = StateGraph(AgentState)
     workflow.add_node("generate_search_query", generate_search_query_node)
-    workflow.add_node("Google Search", google_search_node)
+    workflow.add_node("google_search", google_search_node)
     workflow.add_node("scrape_and_prepare_context", scrape_and_prepare_context_node)
     workflow.add_node("generate_structured_article", generate_structured_article_node)
     workflow.add_node("revise_article", revise_article_node)
-    workflow.add_node("format_html", format_html_node)
-    workflow.add_node("error_handler", error_handler_node)
+    workflow.add_node("format_html", format_html_node)  # html_output を設定するノード
+    workflow.add_node(
+        "error_handler", error_handler_node
+    )  # html_output を設定するノード
 
     workflow.set_entry_point("generate_search_query")
 
     def should_continue_or_handle_error(state: AgentState) -> str:
         if state.get("error"):
             print(
-                f"エラー検出: {state.get('error')[:100]}... error_handlerへ遷移します。"
+                f"エラー検出: {state.get('error')[:100]}... error_handlerへ遷移します。"  # type: ignore
             )
             return "error_handler"
         print("処理継続: 次のノードへ進みます。")
@@ -374,10 +415,10 @@ def generate_article_workflow(
     workflow.add_conditional_edges(
         "generate_search_query",
         should_continue_or_handle_error,
-        {"continue": "Google Search", "error_handler": "error_handler"},
+        {"continue": "google_search", "error_handler": "error_handler"},
     )
     workflow.add_conditional_edges(
-        "Google Search",
+        "google_search",
         should_continue_or_handle_error,
         {"continue": "scrape_and_prepare_context", "error_handler": "error_handler"},
     )
@@ -398,9 +439,9 @@ def generate_article_workflow(
     )
 
     workflow.add_edge("format_html", END)
-    workflow.add_edge("error_handler", END)
+    workflow.add_edge("error_handler", END)  # error_handlerからもENDへ
 
-    # --- グラフをコンパイル ---
+    # --- グラフをコンパイル (変更なし) ---
     try:
         app = workflow.compile()
     except Exception as e_compile:
@@ -410,13 +451,12 @@ def generate_article_workflow(
         return {
             "success": False,
             "topic": topic_input,
-            "output_file_path": None,
+            "html_output": None,  # ★
             "error_message": error_msg,
             "final_state_summary": None,
         }
 
-    # --- 初期状態の設定 ---
-    # ★ initial_stateから image_url を削除
+    # --- 初期状態の設定 (変更なし) ---
     initial_state: AgentState = {
         "topic": topic_input,
         "search_query": "",
@@ -426,12 +466,11 @@ def generate_article_workflow(
         "initial_article_title": "",
         "initial_article_content": "",
         "revised_article": "",
-        "html_output": "",
+        "html_output": "",  # 初期は空
         "error": None,
-        # "image_url": settings.get("default_image_url", "https://placehold.co/600x400/grey/white?text=Image+Not+Generated"), # ★ 削除
     }
 
-    # --- ワークフロー実行 ---
+    # --- ワークフロー実行 (変更なし) ---
     final_state = None
     try:
         for event_part in app.stream(initial_state, {"recursion_limit": 15}):
@@ -445,111 +484,69 @@ def generate_article_workflow(
         error_msg = f"ワークフロー実行中にエラー: {e_stream}"
         print(error_msg)
         traceback.print_exc()
-        # final_stateがNoneの場合も考慮してエラー情報を取得
-        final_state_error = None
-        if final_state and isinstance(
-            final_state, dict
-        ):  # final_stateが辞書であることを確認
-            final_state_error = str(final_state.get("error"))
+        # final_state が Stream 実行中に設定されている可能性を考慮
+        current_html_output = (
+            final_state.get("html_output") if isinstance(final_state, dict) else None
+        )
+        current_error_message = (
+            final_state.get("error") if isinstance(final_state, dict) else None
+        )
 
-        summary_error = final_state_error if final_state_error else error_msg
-        summary_dict = {"error": summary_error} if final_state else {"error": error_msg}
+        # エラーメッセージが既にfinal_stateにあればそれを優先し、なければストリームエラーを使用
+        final_error_message = (
+            current_error_message if current_error_message else error_msg
+        )
 
+        summary_dict = {
+            "error": final_error_message,
+            "topic": topic_input,
+            "html_output": current_html_output,  # エラー発生時のHTMLも保持
+        }
         return {
             "success": False,
             "topic": topic_input,
-            "output_file_path": None,
-            "error_message": error_msg,
+            "html_output": current_html_output,  # ★
+            "error_message": final_error_message,
             "final_state_summary": summary_dict,
         }
 
     print("\n--- 全ての処理が完了しました ---")
 
-    # --- 結果の処理とファイル保存 ---
-    output_file_path_str = None
     if final_state:
-        safe_topic = (
-            "".join(c if c.isalnum() or c in [" ", "_"] else "_" for c in topic_input)
-            .strip()
-            .replace(" ", "_")
+        error_message_from_state = final_state.get("error")
+        success_status = not bool(error_message_from_state)
+        html_content_output = final_state.get("html_output", "")
+
+        # final_state_summary には html_output も含める
+        final_state_summary_dict = {
+            k: v
+            for k, v in final_state.items()
+            if k != "raw_search_results"  # 生の検索結果は大きすぎるので除外
+        }
+        # html_output が final_state_summary_dict に含まれていることを確認
+        if "html_output" not in final_state_summary_dict:
+            final_state_summary_dict["html_output"] = html_content_output
+
+        print(
+            f"HTML Outputの先頭100文字: {html_content_output[:100] if html_content_output else '（HTMLなし）'}"
         )
-        output_filename = f"{safe_topic}_article.html"
 
-        if not os.path.exists(output_dir):
-            try:
-                os.makedirs(output_dir)
-                print(f"出力ディレクトリを作成しました: {output_dir}")
-            except OSError as e_mkdir:
-                error_msg = (
-                    f"出力ディレクトリの作成に失敗しました ({output_dir}): {e_mkdir}"
-                )
-                print(error_msg)
-                return {
-                    "success": False,
-                    "topic": topic_input,
-                    "output_file_path": None,
-                    "error_message": error_msg,
-                    "final_state_summary": final_state,
-                }
-
-        output_file_path_str = os.path.join(output_dir, output_filename)
-
-        if final_state.get("html_output"):
-            try:
-                with open(output_file_path_str, "w", encoding="utf-8") as f:
-                    f.write(final_state["html_output"])
-
-                if final_state.get("error"):
-                    print(
-                        f"\n処理中にエラーが発生しましたが、情報を含むHTMLファイル '{output_file_path_str}' を出力しました。"
-                    )
-                else:
-                    print(
-                        f"\n最終結果: HTMLファイル '{output_file_path_str}' に出力しました。"
-                    )
-                print("ブラウザで開いて内容を確認してください。")
-
-                return {
-                    "success": not bool(final_state.get("error")),
-                    "topic": topic_input,
-                    "output_file_path": output_file_path_str,
-                    "error_message": final_state.get("error"),
-                    "final_state_summary": {
-                        k: v
-                        for k, v in final_state.items()
-                        if k != "raw_search_results"
-                    },
-                }
-            except Exception as e_write:
-                error_msg = f"HTMLファイルの書き込み中にエラーが発生しました ({output_file_path_str}): {e_write}"
-                print(error_msg)
-                traceback.print_exc()
-                return {
-                    "success": False,
-                    "topic": topic_input,
-                    "output_file_path": None,
-                    "error_message": error_msg,
-                    "final_state_summary": final_state,
-                }
-        else:
-            error_msg = "最終結果: HTMLが出力されませんでした。"
-            print(error_msg)
-            if final_state.get("error"):
-                print(f"エラーメッセージ: {final_state.get('error')}")
-            return {
-                "success": False,
-                "topic": topic_input,
-                "output_file_path": None,
-                "error_message": final_state.get("error", error_msg),
-                "final_state_summary": final_state,
-            }
+        return {
+            "success": success_status,
+            "topic": topic_input,
+            "html_output": html_content_output,
+            "error_message": error_message_from_state,
+            "final_state_summary": final_state_summary_dict,
+        }
     else:
-        error_msg = "最終状態が取得できませんでした。"
-        print(error_msg)
+        error_msg_no_final_state = (
+            "最終状態が取得できませんでした (ワークフロー実行で予期せぬ問題)。"
+        )
+        print(error_msg_no_final_state)
         return {
             "success": False,
             "topic": topic_input,
-            "output_file_path": None,
-            "error_message": error_msg,
+            "html_output": None,  # ★
+            "error_message": error_msg_no_final_state,
             "final_state_summary": None,
         }
