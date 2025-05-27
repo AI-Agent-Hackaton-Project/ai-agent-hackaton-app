@@ -21,6 +21,7 @@ geopandas = "^1.0.1"
 streamlit-geolocation = "^0.0.10"
 langgraph = "^0.4.5"
 pygraphviz = "^1.14"
+pillow = "^11.2.1"
 
 
 [build-system]
