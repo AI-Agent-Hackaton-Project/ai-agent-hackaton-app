@@ -353,7 +353,97 @@ def generate_article_workflow(
             article_html_paragraphs = "".join(
                 [f"<p>{p.strip()}</p>\n" for p in paragraphs if p.strip()]
             )
-            html_output_content = f"""<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>{html_title}</title><style>body {{ font-family: 'Helvetica Neue', Arial, sans-serif; line-height: 1.8; margin: 0; padding: 0; background-color: #f9f9f9; color: #333; }} .container {{ max-width: 800px; margin: 40px auto; background-color: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.08); }} h1 {{ font-size: 2.5em; color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 15px; margin-top: 0; margin-bottom: 25px; }} p {{ margin-bottom: 1.5em; font-size: 1.1em; color: #555; }}</style></head><body><div class="container"><h1>{html_title}</h1>{article_html_paragraphs}</div></body></html>"""
+            html_output_content = f"""<!DOCTYPE html>
+            <html lang="ja">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>{html_title}</title>
+                <style>
+                    body {{
+                        font-family: 'Georgia', 'Times New Roman', serif; /* 哲学者風のセリフ体 */
+                        line-height: 1.7; /* 少し広めの行間 */
+                        margin: 0;
+                        padding: 0;
+                        background-color: #f4f1ea; /* 古紙のようなオフホワイト */
+                        color: #3a3a3a; /* 濃いグレー */
+                    }}
+                    .container {{
+                        max-width: 750px; /* 少し狭めて読みやすく */
+                        margin: 50px auto;
+                        background-color: #fffdf7; /* ややクリームがかった白 */
+                        padding: 40px 50px; /* パディングを左右にもしっかり確保 */
+                        border-radius: 4px; /* 少しシャープな角丸 */
+                        box-shadow: 0 5px 15px rgba(0,0,0,0.1); /* 濃すぎない影 */
+                        border-left: 6px solid #a0522d; /* シエンナ色のアクセントボーダー (茶系) */
+                    }}
+                    h1 {{
+                        font-family: 'Helvetica Neue', Arial, sans-serif; /* 見出しはモダンなサンセリフも可 */
+                        font-size: 2.4em;
+                        color: #4a3b32; /* ダークブラウン */
+                        border-bottom: 1px solid #dcdcdc; /* 控えめな下線 (シルバーグレー) */
+                        padding-bottom: 20px;
+                        margin-top: 0;
+                        margin-bottom: 35px;
+                        font-weight: bold;
+                        letter-spacing: 0.5px; /* 文字間を少し調整 */
+                    }}
+                    p {{
+                        margin-bottom: 1.8em; /* 段落間のマージンを少し広げる */
+                        font-size: 1.1em; /* 基本の文字サイズを少し大きく */
+                        color: #484848; /* やや濃いめのグレー */
+                        text-align: justify; /* 両端揃えで書籍風に。不要なら left に */
+                        orphans: 3; /* 表示調整: 段落の最終行がページやカラムの先頭にくるのを3行以上にする */
+                        widows: 3;  /* 表示調整: 段落の最初の行がページやカラムの最後にくるのを3行以上にする */
+                    }}
+                    /* 引用スタイル */
+                    blockquote {{
+                        margin: 25px 0;
+                        padding: 20px 25px 20px 30px; /* 内側の余白を調整 */
+                        border-left: 4px solid #a0522d; /* アクセントカラー */
+                        background-color: #f9f6f0; /* 背景色を少し変える */
+                        font-style: italic;
+                        color: #5a473a; /* 引用文の色 */
+                        position: relative;
+                    }}
+                    blockquote::before {{
+                        content: "\\201C"; /* Unicodeの開始二重引用符 */
+                        font-family: 'Georgia', serif; /* 引用符のフォント */
+                        font-size: 3.5em; /* 引用符のサイズ */
+                        color: #a0522d; /* 引用符の色 */
+                        position: absolute;
+                        left: 5px; /* 左からの位置 */
+                        top: 0px;  /* 上からの位置 */
+                        opacity: 0.8; /* 少し透明度を加えて柔らかく */
+                    }}
+                    blockquote p {{
+                        margin-bottom: 0.5em; /* blockquote内のpタグのmargin調整 */
+                        font-size: 1em; /* 本文より少し小さくする場合 */
+                        color: #5a473a; /* 本文とは少し変えた文字色 */
+                    }}
+                    blockquote p:last-child {{
+                        margin-bottom: 0; /* 最後の段落下のマージンを削除 */
+                    }}
+
+                    /* 記事の最後に著作権表示や思考を促す一言などを追加する場合のスタイル例 (オプション) */
+                    .article-footer {{
+                        margin-top: 40px;
+                        padding-top: 20px;
+                        border-top: 1px solid #eee; /* 上のコンテンツとの区切り線 */
+                        text-align: center;
+                        font-size: 0.9em;
+                        color: #777;
+                        font-style: italic;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>{html_title}</h1>
+                    {article_html_paragraphs}
+                    </div>
+            </body>
+            </html>"""
             print("HTML整形完了。")
             # state["html_output"] に整形済みHTMLを格納
             return {

@@ -21,8 +21,6 @@ with st.sidebar:
     )
 
 
-current_script_dir = os.path.dirname(os.path.abspath(__file__))
-
 # 記事生成ボタン
 if st.button("📝 記事を生成する", type="primary", use_container_width=True):
     if not user_topic.strip():
