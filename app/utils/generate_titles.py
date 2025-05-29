@@ -2,7 +2,7 @@ import streamlit as st
 from config.env_config import get_env_config
 from langchain_google_vertexai import ChatVertexAI
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain.output_parsers import RetryWithErrorOutputParser # こちらを正しく使う
+from langchain.output_parsers import RetryWithErrorOutputParser 
 from langchain_core.exceptions import OutputParserException
 import traceback
 from langchain_core.prompts import ChatPromptTemplate
@@ -13,6 +13,7 @@ from langchain_core.messages import AIMessage # LLM出力の型ヒント用
 from langchain_google_community.search import GoogleSearchAPIWrapper
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_community.document_transformers import BeautifulSoupTransformer
+from prompts.PHILOSOPHICAL_TITLES_PROMPT import PHILOSOPHICAL_TITLES_PROMPT
 
 
 
@@ -26,53 +27,6 @@ class TitlesOutput(BaseModel):
         min_items=5,
         max_items=5,
     )
-
-
-PHILOSOPHICAL_TITLES_PROMPT_TEMPLATE = """
-あなたは、場所の持つ意味や物語を掘り下げ、読者に哲学的な問いを投げかける思索家であり、エッセイストです。
-提供された情報と都道府県名に基づき、人々の知的好奇心を刺激し、内省を促すようなタイトル群を生成してください。
-今回のコンセプトは「地図の中の哲学者」です。生成するタイトルは、このコンセプトを色濃く反映するものとします。
-
-# コンセプト「地図の中の哲学者」について:
-- 地図上の場所（今回は {selected_prefecture}）を選ぶと、その場所の歴史・文化・自然・社会背景（例：過疎化、伝統技術の継承、災害からの復興など）を深く掘り下げます。
-- 単なる情報提供ではなく、その場所が持つ「意味」や、私たち自身への「問い」を浮き彫りにし、読者が「場所をきっかけに自分を問い直す」ような体験を促すことを目指します。
-
-# 都道府県名:
-{selected_prefecture}
-
-# 提供された検索結果（コンテキスト）:
-{search_results}
-
-# 指示:
-提供された検索結果（コンテキスト）と上記の都道府県名「{selected_prefecture}」に基づいて、以下の条件と「地図の中の哲学者」のコンセプトを深く理解した上で、メインタイトル1つとサブタイトル5つを生成してください。
-
-- **メインタイトル:**
-    - SEOも意識しつつ、**{selected_prefecture} の本質に迫るような、あるいはその土地から発せられる哲学的な問いを投げかけるような、思索的で魅力的なタイトル**にしてください。
-    - 例：「{selected_prefecture}の黄昏に聴く、変わりゆく故郷と魂の響き」（←この例も30字以内に収まるように調整するとより良いでしょう）
-    - **最重要条件:** メインタイトルは**必ず20文字以上、30文字以内**にしてください。文字数が足りない場合や長すぎる場合は、場所の持つ意味、問いかけ、感情、風景描写などを調整し、**必ずこの範囲の長さに**してください。この文字数範囲外のタイトルは許可されません。
-    - **必ず「{selected_prefecture}」というキーワードを最低1回は含めてください**。
-
-- **サブタイトル:**
-    - 「{selected_prefecture}」や、その土地の歴史、文化、自然、社会背景（例：過疎化、伝統、災害、再生、人々の営みなど）に関連するキーワードを効果的に含めてください。
-    - 各サブタイトルは、具体的な情報を示唆しつつ、**読者がその場所の意味について深く考え、自らの価値観や生き方について問い直すきっかけとなるような、哲学的で示唆に富んだ問いかけや視点**を提示してください。
-    - **各サブタイトルは、おおむね15文字程度の簡潔さで、読者の興味を引き、深い思索を促す問いを投げかけるものにしてください。**
-    - サブタイトル1は「{selected_prefecture}とは？風景が紡ぐ物語」のような、場所の導入と問いかけを簡潔に含む形式にしてください。（おおむね15文字程度）
-    - 残りのサブタイトルも、それぞれが独立した問いや思索のテーマを簡潔に持つように工夫してください。
-    - 例 (それぞれ15文字程度で):
-        - 「〇〇（地名等）に何を聴く？」
-        - 「{selected_prefecture}の古道、未来への問い」
-        - 「伝統と革新、豊かさの行方」
-        - 「旅人よ、{selected_prefecture}で何を見出す？」
-        - 「静寂が語る{selected_prefecture}の心」
-
-あなたは、いかなる状況であっても、指示された以下のJSON形式のみで応答しなければなりません。それ以外のテキスト（前置き、後書き、JSONマークダウンブロックなど）は一切含めないでください。
-
-## **【最終出力の形式】**
-{format_instructions}
-
-# あなたが生成する「{selected_prefecture}」に関する「地図の中の哲学者」としてのタイトル群:
-""" # <--- JSON出力に関する指示を少し強化
-
 
 def _get_search_results(
     query: str, api_key: str, cse_id: str, num_results: int
@@ -208,12 +162,10 @@ def _invoke_llm_for_titles(
         "応答には指示されたJSON以外の文字列（説明、前置き、後書き、マークダウンなど）を一切含めないでください。"
     )
 
-    # プロンプトテンプレートの準備 (これは元のコードにもあったはず)
-    # format_instructions は pydantic_parser から取得して部分適用する
     prompt_template_obj = ChatPromptTemplate.from_messages(
         [
             ("system", system_template),
-            ("user", PHILOSOPHICAL_TITLES_PROMPT_TEMPLATE),
+            ("user", PHILOSOPHICAL_TITLES_PROMPT),
         ]
     ).partial(format_instructions=pydantic_parser.get_format_instructions())
     
