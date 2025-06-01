@@ -608,37 +608,6 @@ blockquote::before {{ content: "\\201C"; font-family: 'Georgia', serif; font-siz
         print("HTML整形完了。")
         return {**state, "html_output": html_output_content, "error": current_error}
 
-    # error_handler_node は使われなくなる可能性があるが、念のため残す
-    def error_handler_node(state: AgentState) -> AgentState:
-        print(
-            f"--- 最終エラーハンドラノード実行 ---"
-        )  # 通常は format_html で処理される
-        error_message = state.get("error", "不明なエラーが発生しました。")
-        # このノードが呼ばれるのは、format_html より前の段階で致命的なエラーがあり、
-        # かつ decide_next_node が 'error_handler' を返した場合（現状のロジックでは発生しにくい）
-        # html_output は既に format_html でエラーページが設定されている可能性が高い
-        # もし未設定ならここで設定
-        if not state.get("html_output") or "思索の途絶" not in state.get(
-            "html_output", ""
-        ):
-            subtitles_str = (
-                ", ".join(state.get("subtitles", []))
-                if isinstance(state.get("subtitles"), list)
-                else str(state.get("subtitles", "なし"))
-            )
-            html_error_output_content = f"""<!DOCTYPE html>
-    <html lang="ja"><head><meta charset="UTF-8"><title>処理エラー</title>
-    <style>body{{font-family:sans-serif;margin:20px;}} .container{{max-width:800px;margin:auto;padding:20px;border:1px solid #ccc;}} h1{{color:red;}}pre{{background-color:#f0f0f0;padding:10px;border:1px solid #ddd;}}</style></head>
-    <body><div class="container"><h1>記事生成プロセスでエラーが発生しました</h1><p><strong>エラーメッセージ:</strong></p><pre>{error_message}</pre><hr>
-    <p><strong>状態情報 (一部):</strong></p><pre>メインタイトル: {state.get("main_title", "N/A")}\nサブタイトル: {subtitles_str}</pre>
-    </div></body></html>"""
-            return {
-                **state,
-                "html_output": html_error_output_content,
-                "error": error_message,
-            }
-        return state  # 既にhtml_outputにエラーページが設定されている場合はそのまま
-
     workflow = StateGraph(AgentState)
     workflow.add_node("generate_search_query", generate_search_query_node)
     workflow.add_node("google_search", google_search_node)
