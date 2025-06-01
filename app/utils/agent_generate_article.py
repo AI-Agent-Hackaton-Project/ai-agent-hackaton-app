@@ -42,14 +42,14 @@ class AgentState(TypedDict):
     generated_article_json: Dict[str, Any]
     initial_article_title: str
     initial_article_content: str
-    revised_article: str
+    # revised_article: str # 添削機能削除のためコメントアウト
     html_output: str  # 生成されたHTMLコンテンツはここに格納される
     error: str | None
 
 
 def generate_article_workflow(
     topic_input: str,
-) -> Dict[str, Any]:  # ★ output_dir 引数を削除
+) -> Dict[str, Any]:
     """
     指定されたトピックに基づいて記事を生成するワークフローを実行します。
     HTMLコンテンツは返り値の辞書に含まれます。
@@ -66,7 +66,6 @@ def generate_article_workflow(
             - "final_state_summary" (Dict | None): 最終状態の主要な情報の要約（デバッグ用）。
     """
     print(f"\n--- 「{topic_input}」に関する記事生成を開始します ---")
-    # print(f"--- 出力先ディレクトリ: ... ---") # ★ ファイル保存しないのでこの行は不要
 
     settings = get_env_config()
     google_api_key = settings.get("google_api_key")
@@ -78,7 +77,7 @@ def generate_article_workflow(
         return {
             "success": False,
             "topic": topic_input,
-            "html_output": None,  # ★
+            "html_output": None,
             "error_message": error_msg,
             "final_state_summary": None,
         }
@@ -103,12 +102,12 @@ def generate_article_workflow(
         return {
             "success": False,
             "topic": topic_input,
-            "html_output": None,  # ★
+            "html_output": None,
             "error_message": error_msg,
             "final_state_summary": None,
         }
 
-    # --- ノード定義 (変更なし) ---
+    # --- ノード定義 ---
     def generate_search_query_node(state: AgentState) -> AgentState:
         print("--- ステップ1a: 検索クエリ生成 ---")
         topic = state["topic"]
@@ -312,36 +311,11 @@ def generate_article_workflow(
             traceback.print_exc()
             return {**state, "error": f"記事生成エラー: {str(e)}"}
 
-    def revise_article_node(state: AgentState) -> AgentState:
-        if state.get("error"):
-            return state
-        print("--- ステップ3: 記事添削 ---")
-        article_to_revise = state["initial_article_content"]
-        if not article_to_revise:
-            print("添削対象の記事がありません。スキップします。")
-            return {
-                **state,
-                "revised_article": state.get("initial_article_content", ""),
-                "error": None,
-            }
-        try:
-            print("記事を添削します...")
-            prompt_text = f"以下の日本語の記事を、より自然で読みやすく、誤字脱字や文法的な誤りがないように添削してください。\n記事の主要な内容は変えずに、表現を改善してください。\nですます調を維持してください。\n\n元の記事:\n{article_to_revise}\n\n添削後の記事:\n"
-            response = llm.invoke([HumanMessage(content=prompt_text)])
-            revised_article = response.content
-            print(f"記事添削完了:\n{revised_article[:200]}...")
-            return {**state, "revised_article": revised_article, "error": None}
-        except Exception as e:
-            print(f"記事添削中にエラーが発生しました: {e}")
-            traceback.print_exc()
-            return {**state, "error": f"記事添削エラー: {str(e)}"}
-
     def format_html_node(state: AgentState) -> AgentState:
-        print("--- ステップ5: HTML整形 ---")
+        print("--- ステップ3: HTML整形 ---")
         html_title = state.get("initial_article_title") or state.get("topic", "記事")
-        html_article_content = state.get("revised_article")
-        if not html_article_content:
-            html_article_content = state.get("initial_article_content", "")
+        html_article_content = state.get("initial_article_content", "")
+
         if state.get("error") and not html_article_content:
             html_article_content = (
                 f"記事のコンテンツ生成に失敗しました。エラー: {state.get('error')}"
@@ -361,75 +335,72 @@ def generate_article_workflow(
                 <title>{html_title}</title>
                 <style>
                     body {{
-                        font-family: 'Georgia', 'Times New Roman', serif; /* 哲学者風のセリフ体 */
-                        line-height: 1.7; /* 少し広めの行間 */
+                        font-family: 'Georgia', 'Times New Roman', serif;
+                        line-height: 1.7;
                         margin: 0;
                         padding: 0;
-                        background-color: #f4f1ea; /* 古紙のようなオフホワイト */
-                        color: #3a3a3a; /* 濃いグレー */
+                        background-color: #f4f1ea;
+                        color: #3a3a3a;
                     }}
                     .container {{
-                        max-width: 750px; /* 少し狭めて読みやすく */
+                        max-width: 750px;
                         margin: 50px auto;
-                        background-color: #fffdf7; /* ややクリームがかった白 */
-                        padding: 40px 50px; /* パディングを左右にもしっかり確保 */
-                        border-radius: 4px; /* 少しシャープな角丸 */
-                        box-shadow: 0 5px 15px rgba(0,0,0,0.1); /* 濃すぎない影 */
-                        border-left: 6px solid #a0522d; /* シエンナ色のアクセントボーダー (茶系) */
+                        background-color: #fffdf7;
+                        padding: 40px 50px;
+                        border-radius: 4px;
+                        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+                        border-left: 6px solid #a0522d;
                     }}
                     h1 {{
-                        font-family: 'Helvetica Neue', Arial, sans-serif; /* 見出しはモダンなサンセリフも可 */
+                        font-family: 'Helvetica Neue', Arial, sans-serif;
                         font-size: 2.4em;
-                        color: #4a3b32; /* ダークブラウン */
-                        border-bottom: 1px solid #dcdcdc; /* 控えめな下線 (シルバーグレー) */
+                        color: #4a3b32;
+                        border-bottom: 1px solid #dcdcdc;
                         padding-bottom: 20px;
                         margin-top: 0;
                         margin-bottom: 35px;
                         font-weight: bold;
-                        letter-spacing: 0.5px; /* 文字間を少し調整 */
+                        letter-spacing: 0.5px;
                     }}
                     p {{
-                        margin-bottom: 1.8em; /* 段落間のマージンを少し広げる */
-                        font-size: 1.1em; /* 基本の文字サイズを少し大きく */
-                        color: #484848; /* やや濃いめのグレー */
-                        text-align: justify; /* 両端揃えで書籍風に。不要なら left に */
-                        orphans: 3; /* 表示調整: 段落の最終行がページやカラムの先頭にくるのを3行以上にする */
-                        widows: 3;  /* 表示調整: 段落の最初の行がページやカラムの最後にくるのを3行以上にする */
+                        margin-bottom: 1.8em;
+                        font-size: 1.1em;
+                        color: #484848;
+                        text-align: justify;
+                        orphans: 3;
+                        widows: 3;
                     }}
-                    /* 引用スタイル */
                     blockquote {{
                         margin: 25px 0;
-                        padding: 20px 25px 20px 30px; /* 内側の余白を調整 */
-                        border-left: 4px solid #a0522d; /* アクセントカラー */
-                        background-color: #f9f6f0; /* 背景色を少し変える */
+                        padding: 20px 25px 20px 30px;
+                        border-left: 4px solid #a0522d;
+                        background-color: #f9f6f0;
                         font-style: italic;
-                        color: #5a473a; /* 引用文の色 */
+                        color: #5a473a;
                         position: relative;
                     }}
                     blockquote::before {{
-                        content: "\\201C"; /* Unicodeの開始二重引用符 */
-                        font-family: 'Georgia', serif; /* 引用符のフォント */
-                        font-size: 3.5em; /* 引用符のサイズ */
-                        color: #a0522d; /* 引用符の色 */
+                        content: "\\201C";
+                        font-family: 'Georgia', serif;
+                        font-size: 3.5em;
+                        color: #a0522d;
                         position: absolute;
-                        left: 5px; /* 左からの位置 */
-                        top: 0px;  /* 上からの位置 */
-                        opacity: 0.8; /* 少し透明度を加えて柔らかく */
+                        left: 5px;
+                        top: 0px;
+                        opacity: 0.8;
                     }}
                     blockquote p {{
-                        margin-bottom: 0.5em; /* blockquote内のpタグのmargin調整 */
-                        font-size: 1em; /* 本文より少し小さくする場合 */
-                        color: #5a473a; /* 本文とは少し変えた文字色 */
+                        margin-bottom: 0.5em;
+                        font-size: 1em;
+                        color: #5a473a;
                     }}
                     blockquote p:last-child {{
-                        margin-bottom: 0; /* 最後の段落下のマージンを削除 */
+                        margin-bottom: 0;
                     }}
-
-                    /* 記事の最後に著作権表示や思考を促す一言などを追加する場合のスタイル例 (オプション) */
                     .article-footer {{
                         margin-top: 40px;
                         padding-top: 20px;
-                        border-top: 1px solid #eee; /* 上のコンテンツとの区切り線 */
+                        border-top: 1px solid #eee;
                         text-align: center;
                         font-size: 0.9em;
                         color: #777;
@@ -445,7 +416,6 @@ def generate_article_workflow(
             </body>
             </html>"""
             print("HTML整形完了。")
-            # state["html_output"] に整形済みHTMLを格納
             return {
                 **state,
                 "html_output": html_output_content,
@@ -472,24 +442,20 @@ def generate_article_workflow(
         print(f"--- エラー発生 (エラーハンドラノード) ---")
         error_message = state.get("error", "不明なエラー")
         print(f"エラー内容: {error_message}")
-        # エラー時もhtml_outputにエラー情報をHTMLとして格納
         html_error_output_content = f"""<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>処理エラー</title></head><body><h1>記事生成プロセスでエラーが発生しました</h1><p><strong>エラーメッセージ:</strong></p><pre>{error_message}</pre><hr><p><strong>状態情報 (一部):</strong></p><pre>トピック: {state.get("topic")}\n検索クエリ: {state.get("search_query")}\nスクレイプコンテキストの有無: {"あり" if state.get("scraped_context") else "なし"}\n初期記事タイトルの有無: {"あり" if state.get("initial_article_title") else "なし"}</pre></body></html>"""
         return {
             **state,
             "html_output": html_error_output_content,
-        }  # errorキーはそのまま
+        }
 
-    # --- グラフ構築 (変更なし) ---
+    # --- グラフ構築 ---
     workflow = StateGraph(AgentState)
     workflow.add_node("generate_search_query", generate_search_query_node)
     workflow.add_node("google_search", google_search_node)
     workflow.add_node("scrape_and_prepare_context", scrape_and_prepare_context_node)
     workflow.add_node("generate_structured_article", generate_structured_article_node)
-    workflow.add_node("revise_article", revise_article_node)
-    workflow.add_node("format_html", format_html_node)  # html_output を設定するノード
-    workflow.add_node(
-        "error_handler", error_handler_node
-    )  # html_output を設定するノード
+    workflow.add_node("format_html", format_html_node)
+    workflow.add_node("error_handler", error_handler_node)
 
     workflow.set_entry_point("generate_search_query")
 
@@ -520,18 +486,13 @@ def generate_article_workflow(
     workflow.add_conditional_edges(
         "generate_structured_article",
         should_continue_or_handle_error,
-        {"continue": "revise_article", "error_handler": "error_handler"},
-    )
-    workflow.add_conditional_edges(
-        "revise_article",
-        should_continue_or_handle_error,
         {"continue": "format_html", "error_handler": "error_handler"},
     )
 
     workflow.add_edge("format_html", END)
-    workflow.add_edge("error_handler", END)  # error_handlerからもENDへ
+    workflow.add_edge("error_handler", END)
 
-    # --- グラフをコンパイル (変更なし) ---
+    # --- グラフをコンパイル ---
     try:
         app = workflow.compile()
     except Exception as e_compile:
@@ -541,12 +502,12 @@ def generate_article_workflow(
         return {
             "success": False,
             "topic": topic_input,
-            "html_output": None,  # ★
+            "html_output": None,
             "error_message": error_msg,
             "final_state_summary": None,
         }
 
-    # --- 初期状態の設定 (変更なし) ---
+    # --- 初期状態の設定 ---
     initial_state: AgentState = {
         "topic": topic_input,
         "search_query": "",
@@ -555,12 +516,12 @@ def generate_article_workflow(
         "generated_article_json": {},
         "initial_article_title": "",
         "initial_article_content": "",
-        "revised_article": "",
-        "html_output": "",  # 初期は空
+        # "revised_article": "", # 添削機能削除のためコメントアウト
+        "html_output": "",
         "error": None,
     }
 
-    # --- ワークフロー実行 (変更なし) ---
+    # --- ワークフロー実行 ---
     final_state = None
     try:
         for event_part in app.stream(initial_state, {"recursion_limit": 15}):
@@ -574,28 +535,24 @@ def generate_article_workflow(
         error_msg = f"ワークフロー実行中にエラー: {e_stream}"
         print(error_msg)
         traceback.print_exc()
-        # final_state が Stream 実行中に設定されている可能性を考慮
         current_html_output = (
             final_state.get("html_output") if isinstance(final_state, dict) else None
         )
         current_error_message = (
             final_state.get("error") if isinstance(final_state, dict) else None
         )
-
-        # エラーメッセージが既にfinal_stateにあればそれを優先し、なければストリームエラーを使用
         final_error_message = (
             current_error_message if current_error_message else error_msg
         )
-
         summary_dict = {
             "error": final_error_message,
             "topic": topic_input,
-            "html_output": current_html_output,  # エラー発生時のHTMLも保持
+            "html_output": current_html_output,
         }
         return {
             "success": False,
             "topic": topic_input,
-            "html_output": current_html_output,  # ★
+            "html_output": current_html_output,
             "error_message": final_error_message,
             "final_state_summary": summary_dict,
         }
@@ -607,13 +564,11 @@ def generate_article_workflow(
         success_status = not bool(error_message_from_state)
         html_content_output = final_state.get("html_output", "")
 
-        # final_state_summary には html_output も含める
         final_state_summary_dict = {
             k: v
             for k, v in final_state.items()
             if k != "raw_search_results"  # 生の検索結果は大きすぎるので除外
         }
-        # html_output が final_state_summary_dict に含まれていることを確認
         if "html_output" not in final_state_summary_dict:
             final_state_summary_dict["html_output"] = html_content_output
 
@@ -636,7 +591,7 @@ def generate_article_workflow(
         return {
             "success": False,
             "topic": topic_input,
-            "html_output": None,  # ★
+            "html_output": None,
             "error_message": error_msg_no_final_state,
             "final_state_summary": None,
         }
