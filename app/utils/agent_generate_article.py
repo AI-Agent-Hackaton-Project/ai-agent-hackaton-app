@@ -42,8 +42,7 @@ class AgentState(TypedDict):
     generated_article_json: Dict[str, Any]
     initial_article_title: str
     initial_article_content: str
-    # revised_article: str # 添削機能削除のためコメントアウト
-    html_output: str  # 生成されたHTMLコンテンツはここに格納される
+    html_output: str 
     error: str | None
 
 
