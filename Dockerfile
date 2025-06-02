@@ -24,4 +24,4 @@ RUN poetry install --no-interaction --no-ansi
 
 COPY . /app/
 
-CMD ["poetry", "run", "streamlit", "run", "main.py", "--server.port=8080", "--server.address=0.0.0.0"]
+CMD ["poetry", "run", "streamlit", "run", "app/main.py", "--server.port=8080", "--server.address=0.0.0.0"]
