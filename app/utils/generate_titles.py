@@ -22,7 +22,7 @@ from prompts.PHILOSOPHICAL_TITLES_PROMPT import PHILOSOPHICAL_TITLES_PROMPT
 # --- Pydanticモデル定義 (main_titleのdescriptionを修正) ---
 class TitlesOutput(BaseModel):
     main_title: str = Field(
-        description="生成されたメインタイトル。必ず20文字以上30文字以内で、指定された都道府県名を含むこと。"  # プロンプトの指示と整合性を取る
+        description="生成されたメインタイトル。必ず20文字以上30文字以内で、指定された都道府県名を含むこと。" 
     )
     sub_titles: List[str] = Field(
         description="生成されたサブタイトルのリスト。5つのサブタイトルを含むこと。",
@@ -35,8 +35,6 @@ def _get_search_results(
     query: str, api_key: str, cse_id: str, num_results: int
 ) -> List[Dict[str, Any]]:
     """Google検索を実行し、結果のリストを返す。"""
-    # ... (変更なし) ...
-    st.write(f"Google検索中 (クエリ: {query}, {num_results}件)...")
     search_wrapper = GoogleSearchAPIWrapper(
         google_api_key=api_key,
         google_cse_id=cse_id,
@@ -54,7 +52,6 @@ def _get_search_results(
             print(f"  スニペット: {result.get('snippet')}")
     else:
         print("検索結果が見つかりませんでした。")
-    st.write("Google検索完了。")
     return search_results_list if search_results_list else []
 
 
@@ -62,14 +59,10 @@ def _scrape_and_prepare_context(
     search_results_list: List[Dict[str, Any]], settings: dict
 ) -> str:
     """検索結果のURLからウェブページをスクレイピングし、LLM用コンテキスト文字列を作成する。"""
-    # ... (変更なし) ...
     scraped_contents = []
     if not search_results_list:
         return "関連情報は見つかりませんでした。"
 
-    st.write(
-        f"検索結果から上位{len(search_results_list)}件のウェブページを読み込んでいます..."
-    )
     max_content_length_per_page = settings.get("max_content_length_per_page", 2000)
 
     for i, result in enumerate(search_results_list):
@@ -79,7 +72,6 @@ def _scrape_and_prepare_context(
 
         if link:
             try:
-                st.write(f"  読み込み中 ({i+1}/{len(search_results_list)}): {link}")
                 loader = WebBaseLoader(
                     web_path=link, requests_kwargs={"timeout": 10}
                 )  # タイムアウト設定
@@ -141,7 +133,6 @@ def _scrape_and_prepare_context(
             "関連性の高いウェブページのコンテンツは見つかりませんでした。"
         )
 
-    st.write("ウェブページ読み込み完了。")
     return search_context_str
 
 
@@ -215,21 +206,17 @@ def _invoke_llm_for_titles(
     input_data = {
         "selected_prefecture": selected_prefecture,
         "search_results": search_context,
-        # format_instructions は prompt_template_obj に部分適用済みなので、ここには不要
     }
 
     try:
-        st.write("LLMによるタイトル生成中...")
-        # final_chain.invoke は、最終的に TitlesOutput インスタンスを返すはず
         parsed_titles: TitlesOutput = final_chain.invoke(input_data)
-        st.write("タイトル生成完了。")
         return parsed_titles
 
     except OutputParserException as e:
         llm_output = getattr(e, "llm_output", str(e.args[0] if e.args else str(e)))
         error_message = f"⚠️ Output Parser Error (after retries): {e}\n"
         error_message += f"LLMからの生の応答がJSON形式ではありませんでした。リトライ処理も失敗しました。\n"
-        if llm_output:  # llm_output が None でないことを確認
+        if llm_output:
             error_message += (
                 f"LLM Raw Response (during parsing attempt):\n---\n{llm_output}\n---"
             )
@@ -266,15 +253,6 @@ def generate_titles_for_prefecture(selected_prefecture: str) -> dict:
 
     google_api_key = settings.get("google_api_key")
     google_cse_id = settings.get("google_cse_id")
-
-    if not google_api_key or not google_cse_id:
-        st.error("Google APIキーまたはCSE IDが設定されていません。")
-        return {
-            "error": "Search Configuration Error",
-            "details": "Google API Key or CSE ID is missing.",
-            "search_results_for_display": [],
-            "titles_output": None,
-        }
 
     raw_search_results_for_display = []
     search_context_str = "検索処理が実行されませんでした。"

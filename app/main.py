@@ -7,7 +7,9 @@ def main():
     """
     Streamlitアプリケーションのメイン処理を行う関数
     """
-    st.title("シンプルなStreamlitアプリ")
+    st.set_page_config(page_title="地図の中の哲学者 📝", layout="wide")
+
+    st.title("地図の中の哲学者")
 
     map_section()
 
