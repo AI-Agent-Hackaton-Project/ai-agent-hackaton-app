@@ -18,8 +18,6 @@ def main():
     if selected_prefecture_name:
         article_generator_app(selected_prefecture_name)
 
-    st.write("---")
-
 
 if __name__ == "__main__":
     main()

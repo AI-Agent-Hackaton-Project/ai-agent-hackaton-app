@@ -274,7 +274,7 @@ def generate_article_workflow(
                             "headers": {
                                 "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +[http://www.google.com/bot.html](http://www.google.com/bot.html))"
                             },
-                        },  # GooglebotのUAを試す
+                        },
                     )
                     documents = loader.load()
                     if documents:
@@ -395,9 +395,7 @@ def generate_article_workflow(
                 [f"- 「{s}」について考察します。" for s in subtitles_list]
             )
 
-        max_search_context_len = settings.get(
-            "max_search_context_for_llm", 18000
-        )  # 少し余裕を持たせる
+        max_search_context_len = settings.get("max_search_context_for_llm", 18000)
         if len(search_context) > max_search_context_len:
             print(
                 f"検索コンテキストが長すぎるため短縮します。元の長さ: {len(search_context)}, 短縮後: {max_search_context_len}"
@@ -432,7 +430,6 @@ def generate_article_workflow(
             # chain.invoke が LangChain の OutputParserException を投げる可能性がある
             parsed_article_obj = chain.invoke(input_data)
 
-            # parsed_article_objがNoneの場合のチェック (通常OutputParserExceptionで捕捉されるはずだが念のため)
             if parsed_article_obj is None:
                 # この状況は、LLMが完全に空か、パース不可能な応答を返し、
                 # かつOutputParserがそれをNoneとして処理した場合に発生する可能性がある。
@@ -506,12 +503,11 @@ def generate_article_workflow(
             return {**state, "error": f"記事生成汎用エラー: {str(e)}"}
 
     def format_html_node(state: AgentState) -> AgentState:
-        print("--- ステップ3: HTML整形 (哲学的記事用) ---")
-        html_main_title = state.get("initial_article_title") or state.get(
+        print("--- ステップ3: HTML整形 (インラインスタイル) ---")
+        html_main_title_text = state.get("initial_article_title") or state.get(
             "main_title", "考察記事"
         )
         subtitles_list = state.get("subtitles", [])
-        # generated_article_json が None や空辞書の可能性も考慮
         generated_json = (
             state.get("generated_article_json")
             if isinstance(state.get("generated_article_json"), dict)
@@ -526,28 +522,63 @@ def generate_article_workflow(
         article_html_parts = []
         current_error = state.get("error")
 
-        if current_error:  # 何らかのエラーが発生している場合
+        body_style = "font-family: 'Merriweather', 'Georgia', serif; line-height: 1.8; margin: 0; padding: 0; background-color: #f0f0f0; color: #333333;"
+        container_style = "max-width: 800px; margin: 60px auto; background-color: #ffffff; padding: 50px 60px; border-radius: 2px; box-shadow: 0 8px 25px rgba(0,0,0,0.08); border-top: 5px solid #34495e;"
+
+        h1_base_style = "font-family: 'Playfair Display', serif; font-weight: 700; letter-spacing: 0.8px; text-align: center;"
+        main_title_style = f"{h1_base_style} font-size: 2.8em; color: #111111; border-bottom: 2px solid #bdc3c7; padding-bottom: 25px; margin-top: 0; margin-bottom: 40px;"
+
+        h2_base_style = "font-family: 'Playfair Display', serif; font-weight: 600;"
+        subtitle_style = f"{h2_base_style} font-size: 2.0em; color: #222222; margin-top: 50px; margin-bottom: 25px; border-bottom: 1px solid #dfe4ea; padding-bottom: 15px;"
+
+        p_style = "margin-bottom: 2em; font-size: 1.15em; color: #333333; text-align: left; orphans: 2; widows: 2; word-wrap: break-word;"
+
+        # blockquote_style には ::before の指定は含められません。
+        blockquote_style = "margin: 30px 0; padding: 25px 30px; border-left: 5px solid #3498db; background-color: #f8f9f9; font-style: normal; color: #333333; position: relative; font-size: 1.1em;"
+
+        pre_style = "background-color: #f5f5f5; padding: 15px; border: 1px solid #ddd; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-size: 0.9em; color: #333333; overflow-x: auto;"
+
+        # エラー・情報メッセージ用スタイル
+        error_title_style = f"{h1_base_style} font-size: 2.5em; color: #c0392b; text-align: center; margin-bottom: 20px;"
+        error_message_style = f"font-size: 1.1em; color: #c0392b; margin-bottom: 1em;"
+        error_details_style = f"background-color: #fdecea; border: 1px solid #e6b8b3; color: #a82c20; font-size: 0.9em; padding: 10px; white-space: pre-wrap; word-wrap: break-word;"
+        partial_content_title_style = f"{h2_base_style} font-size: 1.8em; color: #555555; margin-top: 30px; margin-bottom: 15px;"
+        warning_message_style = f"font-size: 1.1em; color: #a16207; background-color: #fef9c3; border: 1px solid #fde68a; padding: 10px; border-radius: 4px; margin-bottom: 1em;"
+        info_message_style = f"font-size: 1.0em; color: #333333; margin-bottom: 1em;"
+        processing_result_title_style = f"{h1_base_style} font-size: 2.0em; color: #333333; text-align: center; margin-bottom: 20px;"
+
+        footer_style = "margin-top: 50px; padding-top: 25px; border-top: 1px solid #dfe4ea; text-align: center;"
+        footer_text_style = (
+            "font-size: 0.95em; color: #7f8c8d; font-style: italic; margin: 0;"
+        )
+
+        # エラー発生時のHTML生成
+        if current_error:
             article_html_parts.append(
-                f"<h1>思索の途絶</h1><p>記事の構成中に予期せぬ障害が発生しました。</p><p><strong>エラー詳細:</strong></p><pre>{current_error}</pre><hr>"
+                f'<h1 style="{error_title_style}">思索の途絶</h1>'
+                f'<p style="{error_message_style}">記事の構成中に予期せぬ障害が発生しました。</p>'
+                f'<p style="{error_message_style}"><strong>エラー詳細:</strong></p>'
+                f'<pre style="{error_details_style}">{current_error}</pre><hr style="border: none; border-top: 1px solid #dfe4ea; margin-top: 20px; margin-bottom: 20px;">'
             )
-            # エラーがあっても、部分的なコンテンツがあれば表示を試みる
             if subtitles_list and article_content_blocks:
                 article_html_parts.append(
-                    "<h2>部分的に生成された可能性のあるコンテンツ:</h2>"
+                    f'<h2 style="{partial_content_title_style}">部分的に生成された可能性のあるコンテンツ:</h2>'
                 )
             elif state.get("initial_article_content"):
                 article_html_parts.append(
-                    "<h2>部分的に生成された可能性のあるコンテンツ（結合済み）:</h2>"
+                    f'<h2 style="{partial_content_title_style}">部分的に生成された可能性のあるコンテンツ（結合済み）:</h2>'
                 )
 
-        # subtitles_list と article_content_blocks の整合性を確認して処理
+        # メインコンテンツのHTML生成
         if (
             subtitles_list
             and article_content_blocks
             and len(subtitles_list) == len(article_content_blocks)
         ):
             for i, subtitle_text in enumerate(subtitles_list):
-                article_html_parts.append(f"<h2>{str(subtitle_text).strip()}</h2>\n")
+                article_html_parts.append(
+                    f'<h2 style="{subtitle_style}">{str(subtitle_text).strip()}</h2>\n'
+                )
                 content_for_this_subtitle = (
                     article_content_blocks[i]
                     if i < len(article_content_blocks)
@@ -556,16 +587,20 @@ def generate_article_workflow(
                 paragraphs = str(content_for_this_subtitle).strip().split("\n\n")
                 for p_content in paragraphs:
                     if p_content.strip():
-                        p_content_with_br = p_content.strip().replace("\n", "<br>\n")
-                        article_html_parts.append(f"<p>{p_content_with_br}</p>\n")
-        elif state.get(
-            "initial_article_content"
-        ):  # フォールバック (ブロック構造が不正だが結合コンテンツはある場合)
-            if (
-                not current_error
-            ):  # エラーメッセージがまだなければ、構造不一致の警告を追加
+                        p_content_with_br = p_content.strip().replace(
+                            "\n", "<br>\n"
+                        )  # <br>にはインラインスタイルは直接適用しづらい
+                        # LLMが生成するテキスト内に <blockquote> や <pre> が含まれる場合、
+                        # それらにインラインスタイルを付与するには、ここでHTMLパーサーを使うなど高度な処理が必要です。
+                        # 現状は、もしLLMがこれらのタグを生成した場合、スタイルは適用されません。
+                        # 必要であれば、LLMにインラインスタイル付きでHTMLを生成させるようプロンプトを調整する必要があります。
+                        article_html_parts.append(
+                            f'<p style="{p_style}">{p_content_with_br}</p>\n'
+                        )
+        elif state.get("initial_article_content"):  # フォールバック
+            if not current_error:
                 article_html_parts.append(
-                    "<p><strong>注意:</strong> 記事の内部構造が期待通りに生成されなかったため、結合された内容を表示します。</p>"
+                    f'<p style="{warning_message_style}"><strong>注意:</strong> 記事の内部構造が期待通りに生成されなかったため、結合された内容を表示します。</p>'
                 )
             paragraphs = (
                 str(state.get("initial_article_content", "")).strip().split("\n\n")
@@ -573,39 +608,45 @@ def generate_article_workflow(
             for p_content in paragraphs:
                 if p_content.strip():
                     p_content_with_br = p_content.strip().replace("\n", "<br>\n")
-                    article_html_parts.append(f"<p>{p_content_with_br}</p>\n")
+                    article_html_parts.append(
+                        f'<p style="{p_style}">{p_content_with_br}</p>\n'
+                    )
         elif not current_error:  # エラーがなく、コンテンツも全くない場合
             article_html_parts.append(
-                "<p>言葉はまだ紡がれていません。記事コンテンツが生成されませんでした。</p>"
+                f'<p style="{info_message_style}">言葉はまだ紡がれていません。記事コンテンツが生成されませんでした。</p>'
             )
 
-        # コンテンツが全くなく、エラーメッセージも表示されていない場合は、汎用メッセージ
-        if not article_html_parts:
+        if not article_html_parts:  # HTMLパーツが空の場合の最終フォールバック
+            error_info_html = f"<br>エラー: {current_error}" if current_error else ""
             article_html_parts.append(
-                f"<h1>処理結果</h1><p>記事の生成処理は完了しましたが、表示できるコンテンツがありません。"
-                f"{'<br>エラー: ' + current_error if current_error else ''}</p>"
+                f'<h1 style="{processing_result_title_style}">処理結果</h1>'
+                f'<p style="{info_message_style}">記事の生成処理は完了しましたが、表示できるコンテンツがありません。{error_info_html}</p>'
             )
 
         article_html_body = "".join(article_html_parts)
 
+        # <style> タグは使用しない
+
         html_output_content = f"""<!DOCTYPE html>
-<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{html_main_title} - 深遠なる考察</title>
-<style>
-body {{ font-family: 'Merriweather', 'Georgia', serif; line-height: 1.8; margin: 0; padding: 0; background-color: #f0f0f0; color: #2c3e50; }}
-.container {{ max-width: 800px; margin: 60px auto; background-color: #ffffff; padding: 50px 60px; border-radius: 2px; box-shadow: 0 8px 25px rgba(0,0,0,0.08); border-top: 5px solid #34495e; }}
-h1 {{ font-family: 'Playfair Display', serif; font-size: 2.8em; color: #2c3e50; border-bottom: 2px solid #bdc3c7; padding-bottom: 25px; margin-top: 0; margin-bottom: 40px; font-weight: 700; letter-spacing: 0.8px; text-align: center; }}
-h2 {{ font-family: 'Playfair Display', serif; font-size: 2.0em; color: #34495e; margin-top: 50px; margin-bottom: 25px; border-bottom: 1px solid #dfe4ea; padding-bottom: 15px; font-weight: 600; }}
-p {{ margin-bottom: 2em; font-size: 1.15em; color: #34495e; text-align: left; orphans: 2; widows: 2; word-wrap: break-word; }}
-p br {{ display: block; margin-bottom: 0.5em; content: ""; }}
-pre {{ background-color: #f5f5f5; padding: 15px; border: 1px solid #ddd; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-size: 0.9em; }}
-blockquote {{ margin: 30px 0; padding: 25px 30px; border-left: 5px solid #3498db; background-color: #f8f9f9; font-style: normal; color: #2c3e50; position: relative; font-size: 1.1em; }}
-blockquote::before {{ content: "\\201C"; font-family: 'Georgia', serif; font-size: 4em; color: #3498db; position: absolute; left: 10px; top: -10px; opacity: 0.7; }}
-.article-footer {{ margin-top: 50px; padding-top: 25px; border-top: 1px solid #dfe4ea; text-align: center; font-size: 0.95em; color: #7f8c8d; font-style: italic; }}
-</style></head>
-<body> <div class="container"> <h1>{html_main_title}</h1> {article_html_body} 
-<div class="article-footer"> <p>この記事が、あなたの思索の一助となれば幸いです。</p> </div> </div> </body></html>"""
-        print("HTML整形完了。")
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{html_main_title_text}</title>
+        {'''
+        '''}
+    </head>
+    <body style="{body_style}">
+        <div style="{container_style}">
+            <h1 style="{main_title_style}">{html_main_title_text}</h1>
+            {article_html_body}
+            <div style="{footer_style}">
+                <p style="{footer_text_style}">この記事が、あなたの思索の一助となれば幸いです。</p>
+            </div>
+        </div>
+    </body></html>
+    """
+        print("HTML整形完了 (インラインスタイル)。")
         return {**state, "html_output": html_output_content, "error": current_error}
 
     workflow = StateGraph(AgentState)
@@ -614,12 +655,9 @@ blockquote::before {{ content: "\\201C"; font-family: 'Georgia', serif; font-siz
     workflow.add_node("scrape_and_prepare_context", scrape_and_prepare_context_node)
     workflow.add_node("generate_structured_article", generate_structured_article_node)
     workflow.add_node("format_html", format_html_node)
-    # workflow.add_node("error_handler", error_handler_node) # error_handler は format_html が担う
 
     workflow.set_entry_point("generate_search_query")
 
-    # 各処理ノードの後にエラーがあれば format_html に遷移し、エラーページを生成
-    # エラーがなければ次の処理ノードへ
     def decide_next_step_after_search_query(state: AgentState) -> str:
         return "format_html" if state.get("error") else "google_search"
 
@@ -630,8 +668,6 @@ blockquote::before {{ content: "\\201C"; font-family: 'Georgia', serif; font-siz
         return "format_html" if state.get("error") else "generate_structured_article"
 
     def decide_next_step_after_article_gen(state: AgentState) -> str:
-        # ここではエラーがあってもなくても format_html に行く
-        # format_html がエラーの有無に応じて適切なHTMLを生成する
         return "format_html"
 
     workflow.add_conditional_edges(
@@ -679,19 +715,13 @@ blockquote::before {{ content: "\\201C"; font-family: 'Georgia', serif; font-siz
 
     final_state_result = None
     try:
-        # streamではなくinvokeで最終結果のみ取得する方がシンプルかもしれない
-        # for event_part in app.stream(initial_state, {"recursion_limit": 25}):
-        #     for node_name, current_state_after_node in event_part.items():
-        #         print(f"\n[ノード完了] '{node_name}'")
-        #         if node_name == "__end__": print("  ワークフロー終了点に到達。")
-        #         final_state_result = current_state_after_node
+
         final_state_result = app.invoke(initial_state, {"recursion_limit": 15})
 
-    except Exception as e_stream:  # invokeでもエラーは発生しうる
+    except Exception as e_stream:
         error_msg = f"ワークフロー実行(invoke)中にエラー: {e_stream}"
         print(error_msg)
         traceback.print_exc()
-        # final_state_result が None の可能性もある
         current_html = (
             final_state_result.get("html_output", "")
             if isinstance(final_state_result, dict)
@@ -718,7 +748,6 @@ blockquote::before {{ content: "\\201C"; font-family: 'Georgia', serif; font-siz
         success_status = not bool(error_message_from_state)
         html_content_output = final_state_result.get("html_output", "")
 
-        # サマリーから大きなデータを除外
         final_state_summary_dict = {
             k: (v[:200] + "..." if isinstance(v, str) and len(v) > 200 else v)
             for k, v in final_state_result.items()
@@ -727,7 +756,7 @@ blockquote::before {{ content: "\\201C"; font-family: 'Georgia', serif; font-siz
                 "raw_search_results",
                 "scraped_context",
                 "html_output",
-            ]  # html_outputも除外
+            ]
         }
         final_state_summary_dict["html_output_preview"] = (
             html_content_output[:200] + "..." if html_content_output else "(HTMLなし)"
