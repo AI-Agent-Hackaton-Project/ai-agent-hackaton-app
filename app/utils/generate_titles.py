@@ -2,25 +2,27 @@ import streamlit as st
 from config.env_config import get_env_config
 from langchain_google_vertexai import ChatVertexAI
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain.output_parsers import RetryWithErrorOutputParser 
+from langchain.output_parsers import RetryWithErrorOutputParser
 from langchain_core.exceptions import OutputParserException
 import traceback
 from langchain_core.prompts import ChatPromptTemplate
 from typing import List, Dict, Any, Union
 from pydantic import BaseModel, Field
-from langchain_core.runnables import RunnableLambda, RunnablePassthrough # 必要なものをインポート
-from langchain_core.messages import AIMessage # LLM出力の型ヒント用
+from langchain_core.runnables import (
+    RunnableLambda,
+    RunnablePassthrough,
+)  # 必要なものをインポート
+from langchain_core.messages import AIMessage  # LLM出力の型ヒント用
 from langchain_google_community.search import GoogleSearchAPIWrapper
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_community.document_transformers import BeautifulSoupTransformer
 from prompts.PHILOSOPHICAL_TITLES_PROMPT import PHILOSOPHICAL_TITLES_PROMPT
 
 
-
 # --- Pydanticモデル定義 (main_titleのdescriptionを修正) ---
 class TitlesOutput(BaseModel):
     main_title: str = Field(
-        description="生成されたメインタイトル。必ず20文字以上30文字以内で、指定された都道府県名を含むこと。" # プロンプトの指示と整合性を取る
+        description="生成されたメインタイトル。必ず20文字以上30文字以内で、指定された都道府県名を含むこと。" 
     )
     sub_titles: List[str] = Field(
         description="生成されたサブタイトルのリスト。5つのサブタイトルを含むこと。",
@@ -28,12 +30,11 @@ class TitlesOutput(BaseModel):
         max_items=5,
     )
 
+
 def _get_search_results(
     query: str, api_key: str, cse_id: str, num_results: int
 ) -> List[Dict[str, Any]]:
     """Google検索を実行し、結果のリストを返す。"""
-    # ... (変更なし) ...
-    st.write(f"Google検索中 (クエリ: {query}, {num_results}件)...")
     search_wrapper = GoogleSearchAPIWrapper(
         google_api_key=api_key,
         google_cse_id=cse_id,
@@ -51,7 +52,6 @@ def _get_search_results(
             print(f"  スニペット: {result.get('snippet')}")
     else:
         print("検索結果が見つかりませんでした。")
-    st.write("Google検索完了。")
     return search_results_list if search_results_list else []
 
 
@@ -59,14 +59,10 @@ def _scrape_and_prepare_context(
     search_results_list: List[Dict[str, Any]], settings: dict
 ) -> str:
     """検索結果のURLからウェブページをスクレイピングし、LLM用コンテキスト文字列を作成する。"""
-    # ... (変更なし) ...
     scraped_contents = []
     if not search_results_list:
         return "関連情報は見つかりませんでした。"
 
-    st.write(
-        f"検索結果から上位{len(search_results_list)}件のウェブページを読み込んでいます..."
-    )
     max_content_length_per_page = settings.get("max_content_length_per_page", 2000)
 
     for i, result in enumerate(search_results_list):
@@ -76,7 +72,6 @@ def _scrape_and_prepare_context(
 
         if link:
             try:
-                st.write(f"  読み込み中 ({i+1}/{len(search_results_list)}): {link}")
                 loader = WebBaseLoader(
                     web_path=link, requests_kwargs={"timeout": 10}
                 )  # タイムアウト設定
@@ -138,7 +133,6 @@ def _scrape_and_prepare_context(
             "関連性の高いウェブページのコンテンツは見つかりませんでした。"
         )
 
-    st.write("ウェブページ読み込み完了。")
     return search_context_str
 
 
@@ -153,7 +147,7 @@ def _invoke_llm_for_titles(
         max_retries=settings.get("llm_max_retries", 6),
         stop=None,
     )
-    
+
     pydantic_parser = PydanticOutputParser(pydantic_object=TitlesOutput)
 
     system_template = (
@@ -168,20 +162,20 @@ def _invoke_llm_for_titles(
             ("user", PHILOSOPHICAL_TITLES_PROMPT),
         ]
     ).partial(format_instructions=pydantic_parser.get_format_instructions())
-    
+
     # 1. RetryWithErrorOutputParser インスタンスを作成
     #    llm とラップするパーサー (pydantic_parser) を渡します。
     retry_parser = RetryWithErrorOutputParser.from_llm(
-        llm=llm, 
-        parser=pydantic_parser, # LLMに修正を促す際に、このパーサーの形式指示が再度使われる
-        max_retries=settings.get("parser_max_retries", 3)
+        llm=llm,
+        parser=pydantic_parser,  # LLMに修正を促す際に、このパーサーの形式指示が再度使われる
+        max_retries=settings.get("parser_max_retries", 3),
     )
 
     # 2. LCELチェーンの構築
     #    parse_with_prompt を呼び出すために、PromptValue と LLM出力文字列を準備する
-    
+
     # ヘルパー関数 (RunnableLambda内で使用)
-    def extract_prompt_value(inputs: Dict) :
+    def extract_prompt_value(inputs: Dict):
         return prompt_template_obj.invoke(inputs)
 
     def get_llm_completion_str(inputs: Dict) -> str:
@@ -193,76 +187,72 @@ def _invoke_llm_for_titles(
     # RunnablePassthrough.assign を使って、入力辞書に新しいキー (prompt_value, completion) を追加する
     # これらの新しいキーの値は、それぞれ指定されたRunnableを実行して得られる
     chain_with_intermediate_results = RunnablePassthrough.assign(
-        prompt_value=RunnableLambda(extract_prompt_value), # 入力辞書 x を extract_prompt_value に渡す
-        completion=RunnableLambda(get_llm_completion_str)  # 入力辞書 x を get_llm_completion_str に渡す
+        prompt_value=RunnableLambda(
+            extract_prompt_value
+        ),  # 入力辞書 x を extract_prompt_value に渡す
+        completion=RunnableLambda(
+            get_llm_completion_str
+        ),  # 入力辞書 x を get_llm_completion_str に渡す
     )
 
     # 上記の結果 (prompt_value と completion を含む辞書) を使って、
     # retry_parser の parse_with_prompt を呼び出す
     final_chain = chain_with_intermediate_results | RunnableLambda(
         lambda x: retry_parser.parse_with_prompt(
-            completion=x["completion"], 
-            prompt_value=x["prompt_value"]
+            completion=x["completion"], prompt_value=x["prompt_value"]
         )
     )
-    
+
     input_data = {
         "selected_prefecture": selected_prefecture,
         "search_results": search_context,
-        # format_instructions は prompt_template_obj に部分適用済みなので、ここには不要
     }
 
     try:
-        st.write("LLMによるタイトル生成中...")
-        # final_chain.invoke は、最終的に TitlesOutput インスタンスを返すはず
         parsed_titles: TitlesOutput = final_chain.invoke(input_data)
-        st.write("タイトル生成完了。")
         return parsed_titles
 
     except OutputParserException as e:
         llm_output = getattr(e, "llm_output", str(e.args[0] if e.args else str(e)))
         error_message = f"⚠️ Output Parser Error (after retries): {e}\n"
         error_message += f"LLMからの生の応答がJSON形式ではありませんでした。リトライ処理も失敗しました。\n"
-        if llm_output: # llm_output が None でないことを確認
-            error_message += f"LLM Raw Response (during parsing attempt):\n---\n{llm_output}\n---"
-        
+        if llm_output:
+            error_message += (
+                f"LLM Raw Response (during parsing attempt):\n---\n{llm_output}\n---"
+            )
+
         print(error_message)
         st.error(error_message)
         if llm_output:
-            st.text_area("LLM Raw Output (from parser exception):", llm_output, height=200)
-        
+            st.text_area(
+                "LLM Raw Output (from parser exception):", llm_output, height=200
+            )
+
         return {
             "error": "Output Parser Error",
             "raw_response": llm_output,
             "details": str(e),
         }
     except Exception as e:
-        error_message = f"LLM呼び出しまたはチェーン実行中に予期せぬエラーが発生しました: {e}"
+        error_message = (
+            f"LLM呼び出しまたはチェーン実行中に予期せぬエラーが発生しました: {e}"
+        )
         print(error_message)
         traceback.print_exc()
         st.error(error_message)
-        if hasattr(e, 'args') and e.args:
+        if hasattr(e, "args") and e.args:
             st.text_area("Error Details:", str(e.args[0]), height=100)
         return {
             "error": "LLM Invocation or Chain Execution Error",
             "details": str(e),
         }
 
+
 def generate_titles_for_prefecture(selected_prefecture: str) -> dict:
-    # ... (変更なし、ただし `_invoke_llm_for_titles` の戻り値の型チェックはより厳密にしてもよい) ...
     settings = get_env_config()
 
     google_api_key = settings.get("google_api_key")
     google_cse_id = settings.get("google_cse_id")
-
-    if not google_api_key or not google_cse_id:
-        st.error("Google APIキーまたはCSE IDが設定されていません。")
-        return {
-            "error": "Search Configuration Error",
-            "details": "Google API Key or CSE ID is missing.",
-            "search_results_for_display": [],
-            "titles_output": None,
-        }
 
     raw_search_results_for_display = []
     search_context_str = "検索処理が実行されませんでした。"
@@ -292,7 +282,7 @@ def generate_titles_for_prefecture(selected_prefecture: str) -> dict:
         traceback.print_exc()
 
     # LLMによるタイトル生成
-    llm_response_or_titles = _invoke_llm_for_titles( # 修正された関数を呼び出し
+    llm_response_or_titles = _invoke_llm_for_titles(  # 修正された関数を呼び出し
         selected_prefecture, search_context_str, settings
     )
 
@@ -314,8 +304,14 @@ def generate_titles_for_prefecture(selected_prefecture: str) -> dict:
         }
     else:  # 予期せぬ応答形式
         st.error(f"LLMからの応答が予期せぬ形式でした: {type(llm_response_or_titles)}")
-        if isinstance(llm_response_or_titles, str): # LLMの生の文字列がそのまま返ってきた場合など
-            st.text_area("Unexpected LLM Response (Raw String):", llm_response_or_titles, height=100)
+        if isinstance(
+            llm_response_or_titles, str
+        ):  # LLMの生の文字列がそのまま返ってきた場合など
+            st.text_area(
+                "Unexpected LLM Response (Raw String):",
+                llm_response_or_titles,
+                height=100,
+            )
 
         return {
             "error": "Unexpected LLM Response",

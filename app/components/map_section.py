@@ -1,4 +1,3 @@
-# pages/map_view.py
 import streamlit as st
 from streamlit_folium import st_folium
 from components.map_viewer import create_folium_map_object, process_map_interactions
@@ -8,10 +7,7 @@ from utils.state_manager import initialize_session_state
 from utils.geolocation_handler import process_geolocation_data
 
 
-st.set_page_config(layout="wide")
-
-
-def map_page():
+def map_section():
     st.title("🗾 日本の都道府県マップ")
 
     # GeoJSONデータを読み込み、準備
@@ -45,7 +41,3 @@ def map_page():
 
     # 地図インタラクションデータを処理
     process_map_interactions(map_interaction_data, gdf)
-
-
-if __name__ == "__main__":
-    map_page()
