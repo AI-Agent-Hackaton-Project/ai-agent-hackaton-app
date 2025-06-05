@@ -17,6 +17,7 @@ def get_env_config():
         "max_output_tokens": 4096,
         "google_api_key": os.getenv("GOOGLE_API_KEY"),
         "google_cse_id": os.getenv("GOOGLE_CSE_ID"),
+        "image_model_name": os.getenv("IMAGE_MODEL_NAME"),
         # 検索結果として上位何件を取得するかを設定
         "search_num_results": 5,
     }
