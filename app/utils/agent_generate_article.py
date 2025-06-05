@@ -17,9 +17,7 @@ from langchain_community.document_transformers import BeautifulSoupTransformer
 
 from langgraph.graph import StateGraph, END
 
-from utils.generate_four_images import generate_prefecture_image_and_get_path
-
-print("Successfully imported generate_prefecture_image_and_get_path.")
+from utils.generate_four_images import generate_four_images
 
 
 # --- Pydanticモデル定義 (記事構造) ---
@@ -180,7 +178,7 @@ def generate_article_workflow(
         ]  # Assume main_title is the prefecture
         try:
             print(f"画像生成関数を呼び出します (対象: {prefecture_name_for_image})...")
-            image_path = generate_prefecture_image_and_get_path(
+            image_path = generate_four_images(
                 prefecture_name_for_image
             )
             if image_path:

@@ -165,7 +165,7 @@ def generate_landscape_comic_prompt(prefecture_name: str) -> str | None:
     return prompt.strip()
 
 
-def generate_prefecture_image_and_get_path(prefecture_name: str) -> str | None:
+def generate_four_images(prefecture_name: str) -> str | None:
     """
     都道府県のデータ生成 → 画像生成を自動で連続実行し、
     生成された画像を一時ファイルに保存してそのパスを返す関数。
