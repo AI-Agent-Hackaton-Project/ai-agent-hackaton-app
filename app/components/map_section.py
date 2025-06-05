@@ -1,43 +1,72 @@
+# main.py
 import streamlit as st
-from streamlit_folium import st_folium
-from components.map_viewer import create_folium_map_object, process_map_interactions
-from components.sidebar_controls import render_sidebar_controls
-from utils.data_loader import load_and_prepare_geojson
-from utils.state_manager import initialize_session_state
-from utils.geolocation_handler import process_geolocation_data
+
+
+from utils.state_manager import (
+    initialize_session_state,
+    process_selected_feature,
+    process_geolocation_data,
+)
+from utils.data_loader import load_geojson
+from components.sidebar_controls import render_sidebar
+from components.map_viewer import create_pydeck_map
 
 
 def map_section():
-    st.title("🗾 日本の都道府県マップ")
 
-    # GeoJSONデータを読み込み、準備
-    gdf = load_and_prepare_geojson()
-    # セッションステートを初期化
     initialize_session_state()
 
-    # サイドバーコントロールをレンダリングし、ジオロケーションデータを取得
-    current_geo_location = render_sidebar_controls()
-    # ジオロケーションデータに基づいて地図を更新
-    process_geolocation_data(current_geo_location, gdf)
+    gdf = load_geojson()
+    if gdf.empty:
+        return
 
-    # Folium地図オブジェクトを作成
-    folium_map_instance = create_folium_map_object(
-        gdf, st.session_state.map_center, st.session_state.map_zoom
-    )
+    current_user_location = render_sidebar(gdf)
 
-    # StreamlitにFolium地図を表示し、ユーザーインタラクションデータを取得
-    map_interaction_data = st_folium(
-        folium_map_instance,
-        width="100%",
-        height="100%",
-        center=st.session_state.map_center,  # 地図の中心をセッションステートから設定
-        # 取得したいインタラクションデータを指定
-        returned_objects=[
-            "last_object_clicked_tooltip",
-            "last_active_drawing",
-            "center",
-        ],
-    )
+    if not gdf.empty:
+        process_geolocation_data(current_user_location, gdf)
 
-    # 地図インタラクションデータを処理
-    process_map_interactions(map_interaction_data, gdf)
+    map_render_selection = st.session_state.selected_region_on_map
+    map_render_view_state = st.session_state.map_view_state
+
+    deck_obj = create_pydeck_map(gdf, map_render_selection, map_render_view_state)
+
+    event_info = None
+    if deck_obj:
+        event_info = st.pydeck_chart(
+            deck_obj,
+            use_container_width=True,
+            key="jp_map_interactive_final_geo_v5",
+            on_select="rerun",
+            selection_mode="single-object",
+        )
+
+    clicked_feature_props = None
+
+    if event_info and hasattr(event_info, "selection") and event_info.selection:
+        payload = event_info.selection
+        if (
+            isinstance(payload, dict)
+            and "objects" in payload
+            and isinstance(payload["objects"], dict)
+        ):
+            features_list = payload["objects"].get("japan-prefectures")
+            if isinstance(features_list, list) and len(features_list) > 0:
+                raw_feature = features_list[0]
+                if isinstance(raw_feature, dict) and "properties" in raw_feature:
+                    clicked_feature_props = raw_feature["properties"]
+                else:
+
+                    clicked_feature_props = raw_feature
+
+    elif event_info and isinstance(event_info, dict) and not clicked_feature_props:
+        if event_info.get("layer_id") == "japan-prefectures":
+
+            clicked_object_or_props = event_info.get("object")
+            if clicked_object_or_props and isinstance(clicked_object_or_props, dict):
+
+                clicked_feature_props = clicked_object_or_props
+
+    if clicked_feature_props:
+        success, _ = process_selected_feature(clicked_feature_props, gdf)
+        if success:
+            st.rerun()
