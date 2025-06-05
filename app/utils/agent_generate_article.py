@@ -2,6 +2,7 @@
 import os
 import traceback
 from typing import TypedDict, List, Dict, Any
+import base64  # Added for image embedding
 
 from langchain_google_vertexai import ChatVertexAI
 from langchain_core.output_parsers import PydanticOutputParser
@@ -17,7 +18,9 @@ from langchain_community.document_transformers import BeautifulSoupTransformer
 
 from langgraph.graph import StateGraph, END
 
+# Keep both image generation functions
 from utils.generate_four_images import generate_four_images
+from utils.generate_titles_images import generate_prefecture_image_and_get_path
 
 
 # --- Pydanticモデル定義 (記事構造) ---
@@ -36,9 +39,10 @@ class AgentState(TypedDict):
     raw_search_results: List[Dict[str, Any]]
     scraped_context: str
     generated_article_json: Dict[str, Any]
-    initial_article_title: str  # LLMが生成した記事のタイトル
-    initial_article_content: str  # LLMが生成した記事の結合されたブロックコンテンツ
-    prefecture_image_path: str | None  # 生成された都道府県画像のパス
+    initial_article_title: str
+    initial_article_content: str
+    main_theme_image_path: str | None  # For generate_four_images
+    subtitle_image_paths: List[str] | None  # For generate_prefecture_image_and_get_path
     html_output: str
     error: str | None
 
@@ -46,18 +50,21 @@ class AgentState(TypedDict):
 def generate_article_workflow(
     main_title_input: str,
     subtitles_input: List[str],
-    attempt_prefecture_image: bool = True,  # Flag to control image generation attempt
+    attempt_prefecture_image: bool = True,
 ) -> Dict[str, Any]:
     """
     指定されたメインタイトルとサブタイトルリストに基づいて記事を生成するワークフローを実行します。
-    HTMLコンテンツは返り値の辞書に含まれます。
-    `attempt_prefecture_image` がTrueの場合、`main_title_input`を県名として画像生成を試みます。
+    `attempt_prefecture_image` がTrueの場合、2種類の画像生成を試みます:
+    1. `generate_four_images` でメインタイトルに基づいた画像を生成。
+    2. `generate_prefecture_image_and_get_path` で各サブタイトルに基づいた画像を生成。
     """
     print(
         f"\n--- 「{main_title_input}」に関する記事生成を開始します (サブタイトル数: {len(subtitles_input)}) ---"
     )
     if attempt_prefecture_image:
-        print(f"--- 都道府県画像の生成を試みます (対象: {main_title_input}) ---")
+        print(
+            f"--- 画像生成を試みます (メインテーマ: {main_title_input}, サブタイトル別) ---"
+        )
 
     GENERATE_ARTICLE_PROMPT_TEXT = """
 以下の検索結果、メインタイトル、およびサブタイトルリストに基づいて、高品質なブログ記事を作成してください。
@@ -162,59 +169,142 @@ def generate_article_workflow(
         }
 
     # --- ノード定義 ---
-    def generate_prefecture_image_node(state: AgentState) -> AgentState:
+    def generate_main_theme_image_node(state: AgentState) -> AgentState:
         if not attempt_prefecture_image:
-            print("--- 都道府県画像生成スキップ (フラグOFF) ---")
-            return {**state, "prefecture_image_path": None, "error": state.get("error")}
+            print("--- メインテーマ画像生成スキップ (フラグOFF) ---")
+            return {
+                **state,
+                "main_theme_image_path": None,
+            }  # error is handled by subsequent nodes or preserved
 
-        # Preserve existing errors, but attempt image generation if flag is true
-        current_error_from_previous_steps = state.get(
-            "error"
-        )  # Error from steps *before* image gen (should be None if this is first)
-
-        print("--- ステップ0: 都道府県画像生成 (該当する場合) ---")
-        prefecture_name_for_image = state[
-            "main_title"
-        ]  # Assume main_title is the prefecture
+        current_error = state.get("error")
+        print("--- ステップ0a: メインテーマ画像生成 (generate_four_images) ---")
+        prefecture_name_for_image = state["main_title"]
         try:
-            print(f"画像生成関数を呼び出します (対象: {prefecture_name_for_image})...")
-            image_path = generate_four_images(
-                prefecture_name_for_image
+            print(
+                f"generate_four_images を呼び出します (対象: {prefecture_name_for_image})..."
             )
+            # generate_four_images is expected to return a single path or None
+            image_path = generate_four_images(prefecture_name_for_image)
             if image_path:
-                print(f"都道府県画像が生成され、一時保存されました: {image_path}")
+                print(f"メインテーマ画像が生成され、一時保存されました: {image_path}")
                 return {
                     **state,
-                    "prefecture_image_path": image_path,
-                    "error": current_error_from_previous_steps,
-                }  # Preserve previous error
+                    "main_theme_image_path": image_path,
+                    "error": current_error,  # Preserve previous error
+                }
             else:
                 print(
-                    f"都道府県画像の生成に失敗しましたが、パスは返されませんでした (対象: {prefecture_name_for_image})。"
+                    f"メインテーマ画像の生成に失敗 (パス返されず): {prefecture_name_for_image}"
                 )
-                # Do not set/override state["error"] here to allow article generation to continue
-                # This specific failure (no path) is logged but not treated as a blocking error for text.
                 return {
                     **state,
-                    "prefecture_image_path": None,
-                    "error": current_error_from_previous_steps,
+                    "main_theme_image_path": None,
+                    "error": current_error,
                 }
-        except Exception as e_img:
-            error_detail_img = f"都道府県画像の生成中にエラーが発生しました (対象: {prefecture_name_for_image}): {e_img}"
+        except Exception as e_img_main:
+            error_detail_img = (
+                f"メインテーマ画像の生成中にエラー (generate_four_images): {e_img_main}"
+            )
             print(error_detail_img)
-            # traceback.print_exc() # Uncomment for detailed debugging
-            # Store error and append to existing errors if any
             updated_error = (
-                f"{current_error_from_previous_steps}\n{error_detail_img}"
-                if current_error_from_previous_steps
+                f"{current_error}\n{error_detail_img}"
+                if current_error
                 else error_detail_img
             )
-            return {**state, "prefecture_image_path": None, "error": updated_error}
+            return {**state, "main_theme_image_path": None, "error": updated_error}
+
+    def generate_subtitle_images_node(state: AgentState) -> AgentState:
+        if not attempt_prefecture_image:
+            print("--- サブタイトル別画像生成スキップ (フラグOFF) ---")
+            return {**state, "subtitle_image_paths": None}
+
+        current_error = state.get("error")
+        print(
+            "--- ステップ0b: サブタイトル別画像生成 (generate_prefecture_image_and_get_path) ---"
+        )
+
+        prefecture_name = state["main_title"]
+        main_theme_for_image_prompt = state[
+            "main_title"
+        ]  # This is the 'main_title' for the image prompt function
+        sub_themes_for_images = state["subtitles"]
+
+        if not sub_themes_for_images:
+            print(
+                f"サブタイトルリストが空のため、サブタイトル別画像生成をスキップします (都道府県: {prefecture_name})。"
+            )
+            return {
+                **state,
+                "subtitle_image_paths": None,
+                "error": current_error,
+            }
+
+        try:
+            print(
+                f"generate_prefecture_image_and_get_path を呼び出します (都道府県: {prefecture_name}, メインテーマ(プロンプト用): {main_theme_for_image_prompt}, サブテーマ数: {len(sub_themes_for_images)})..."
+            )
+
+            gcp_project_id = settings.get("gcp_project_id")
+            gcp_location = settings.get("gcp_location")
+            llm_model_for_img_prompt = settings.get(
+                "llm_model_name_for_image_prompt",
+                settings.get("model_name", "gemini-1.5-flash-001"),
+            )
+            image_gen_model = settings.get(
+                "image_gen_model_name", "imagen-3.0-fast-generate-001"
+            )
+
+            if not all([gcp_project_id, gcp_location]):
+                img_error_detail = "サブタイトル別画像生成に必要なGCPプロジェクトIDまたはロケーションが設定されていません。"
+                print(img_error_detail)
+                updated_error = (
+                    f"{current_error}\n{img_error_detail}"
+                    if current_error
+                    else img_error_detail
+                )
+                return {**state, "subtitle_image_paths": None, "error": updated_error}
+
+            image_paths_list = generate_prefecture_image_and_get_path(
+                prefecture=prefecture_name,  # For regional characteristics
+                main_title=main_theme_for_image_prompt,  # For overall theme for prompt generator
+                sub_titles=sub_themes_for_images,  # Specific themes for each image
+                gcp_project_id=gcp_project_id,
+                gcp_location=gcp_location,
+                llm_model_name=llm_model_for_img_prompt,
+                image_gen_model_name=image_gen_model,
+            )
+
+            if image_paths_list:
+                print(
+                    f"サブタイトル別画像が {len(image_paths_list)}枚 生成され、一時保存されました。"
+                )
+                return {
+                    **state,
+                    "subtitle_image_paths": image_paths_list,
+                    "error": current_error,
+                }
+            else:
+                print(
+                    f"サブタイトル別画像の生成に失敗 (パスリスト返されず): {prefecture_name}"
+                )
+                return {
+                    **state,
+                    "subtitle_image_paths": None,
+                    "error": current_error,
+                }
+        except Exception as e_img_sub:
+            error_detail_img = f"サブタイトル別画像の生成中にエラー (generate_prefecture_image_and_get_path): {e_img_sub}"
+            print(error_detail_img)
+            updated_error = (
+                f"{current_error}\n{error_detail_img}"
+                if current_error
+                else error_detail_img
+            )
+            return {**state, "subtitle_image_paths": None, "error": updated_error}
 
     def generate_search_query_node(state: AgentState) -> AgentState:
-        current_error = state.get(
-            "error"
-        )  # Preserve errors from image gen or previous steps
+        current_error = state.get("error")
         print("--- ステップ1a: 検索クエリ生成 ---")
         main_title = state["main_title"]
         subtitles = state["subtitles"]
@@ -527,7 +617,8 @@ def generate_article_workflow(
             else []
         )
 
-        prefecture_image_path_val = state.get("prefecture_image_path")
+        main_theme_image_path_val = state.get("main_theme_image_path")
+        subtitle_image_paths_val = state.get("subtitle_image_paths")
         current_error_val = state.get("error")
 
         article_html_parts = []
@@ -536,11 +627,21 @@ def generate_article_workflow(
         body_style = "font-family: 'Merriweather', 'Georgia', serif; line-height: 1.8; margin: 0; padding: 0; background-color: #f4f4f0; color: #3a3a3a;"
         container_style = "max-width: 800px; margin: 50px auto; background-color: #ffffff; padding: 40px 50px 50px; border-radius: 3px; box-shadow: 0 10px 30px rgba(0,0,0,0.07); border-top: 6px solid #2c3e50;"
         h1_base_style = "font-family: 'Playfair Display', serif; font-weight: 700; letter-spacing: 0.5px; text-align: center;"
-        main_title_style_html = f"{h1_base_style} font-size: 2.6em; color: #1a1a1a; border-bottom: 2px solid #eaeaea; padding-bottom: 20px; margin-top: 0; margin-bottom: 35px;"
-        img_container_style = "text-align: center; margin-bottom: 30px;"
-        img_style = "max-width: 100%; height: auto; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);"
+        main_title_style_html = f"{h1_base_style} font-size: 2.6em; color: #1a1a1a; border-bottom: 2px solid #eaeaea; padding-bottom: 20px; margin-top: 0; margin-bottom: 25px;"  # Adjusted margin
+
+        main_img_container_style = (
+            "text-align: center; margin-bottom: 30px;"  # For main theme image
+        )
+        main_img_style = "max-width: 100%; height: auto; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);"
+
+        subtitle_img_container_style = (
+            "text-align: center; margin-top: 15px; margin-bottom: 25px;"
+        )
+        subtitle_img_style = "max-width: 90%; height: auto; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);"
+
         h2_base_style = "font-family: 'Playfair Display', serif; font-weight: 600;"
-        subtitle_style_html = f"{h2_base_style} font-size: 1.9em; color: #1c1c1c; margin-top: 45px; margin-bottom: 20px; border-bottom: 1px solid #f0f0f0; padding-bottom: 12px;"
+        subtitle_style_html = f"{h2_base_style} font-size: 1.9em; color: #1c1c1c; margin-top: 45px; margin-bottom: 10px; border-bottom: 1px solid #f0f0f0; padding-bottom: 12px;"
+
         p_style_html = "margin-bottom: 1.8em; font-size: 1.1em; color: #3a3a3a; text-align: justify; hyphens: auto; orphans: 2; widows: 2; word-wrap: break-word;"
         error_container_style = "padding: 20px; border: 1px solid #d32f2f; background-color: #ffebee; border-radius: 4px; margin-bottom: 20px;"
         error_title_style_html = f"{h1_base_style} font-size: 1.8em; color: #b71c1c; text-align: left; margin-bottom: 10px;"
@@ -559,26 +660,27 @@ def generate_article_workflow(
             f'<h1 style="{main_title_style_html}">{display_main_title_text}</h1>\n'
         )
 
-        if prefecture_image_path_val:
+        # Embed main theme image if available
+        if main_theme_image_path_val:
             try:
-                with open(prefecture_image_path_val, "rb") as img_file:
-                    import base64
-
+                with open(main_theme_image_path_val, "rb") as img_file:
                     b64_string = base64.b64encode(img_file.read()).decode()
-                    article_html_parts.append(f'<div style="{img_container_style}">')
                     article_html_parts.append(
-                        f'  <img src="data:image/png;base64,{b64_string}" alt="Generated image for {display_main_title_text}" style="{img_style}">'
+                        f'<div style="{main_img_container_style}">'
+                    )
+                    article_html_parts.append(
+                        f'  <img src="data:image/png;base64,{b64_string}" alt="Generated image for {display_main_title_text}" style="{main_img_style}">'
                     )
                     article_html_parts.append(f"</div>\n")
                     print(
-                        f"画像をBase64エンコードしてHTMLに埋め込みました: {prefecture_image_path_val}"
+                        f"メインテーマ画像をBase64エンコードしてHTMLに埋め込みました: {main_theme_image_path_val}"
                     )
-            except Exception as e_img_embed:
+            except Exception as e_main_img_embed:
                 print(
-                    f"画像ファイル ({prefecture_image_path_val}) の読み込みまたはBase64エンコードに失敗: {e_img_embed}"
+                    f"メインテーマ画像ファイル ({main_theme_image_path_val}) の読み込みまたはBase64エンコードに失敗: {e_main_img_embed}"
                 )
                 article_html_parts.append(
-                    f'<p style="{error_message_style_html}">画像 ({prefecture_image_path_val}) の表示に失敗しました。</p>\n'
+                    f'<p style="{error_message_style_html}">メインテーマ画像 ({main_theme_image_path_val}) の表示に失敗しました。</p>\n'
                 )
 
         if current_error_val:
@@ -598,31 +700,67 @@ def generate_article_workflow(
             isinstance(subtitles_list, list)
             and subtitles_list
             and article_content_blocks
-            and len(article_content_blocks) == len(subtitles_list)
             and not current_error_val
         ):
             for i, subtitle_text in enumerate(subtitles_list):
                 article_html_parts.append(
                     f'<h2 style="{subtitle_style_html}">{str(subtitle_text).strip()}</h2>\n'
                 )
-                content_for_this_subtitle = article_content_blocks[i]
-                paragraphs = str(content_for_this_subtitle).strip().split("\n\n")
-                for p_content in paragraphs:
-                    if p_content.strip():
-                        p_content_with_br = p_content.strip().replace("\n", "<br>\n")
-                        article_html_parts.append(
-                            f'<p style="{p_style_html}">{p_content_with_br}</p>\n'
+
+                # Embed subtitle-specific image if available
+                if (
+                    subtitle_image_paths_val
+                    and isinstance(subtitle_image_paths_val, list)
+                    and i < len(subtitle_image_paths_val)
+                    and subtitle_image_paths_val[i]
+                ):
+                    image_path_for_subtitle = subtitle_image_paths_val[i]
+                    try:
+                        with open(image_path_for_subtitle, "rb") as img_file:
+                            b64_string = base64.b64encode(img_file.read()).decode()
+                            article_html_parts.append(
+                                f'<div style="{subtitle_img_container_style}">'
+                            )
+                            article_html_parts.append(
+                                f'  <img src="data:image/png;base64,{b64_string}" alt="Generated image for {str(subtitle_text).strip()}" style="{subtitle_img_style}">'
+                            )
+                            article_html_parts.append(f"</div>\n")
+                            print(
+                                f"サブタイトル用画像 ('{str(subtitle_text).strip()}') を埋め込み: {image_path_for_subtitle}"
+                            )
+                    except Exception as e_img_embed_subtitle:
+                        print(
+                            f"サブタイトル用画像ファイル ({image_path_for_subtitle}) の読み込み/エンコード失敗: {e_img_embed_subtitle}"
                         )
+                        article_html_parts.append(
+                            f'<p style="{error_message_style_html}">画像 ({image_path_for_subtitle}) の表示失敗。</p>\n'
+                        )
+
+                if i < len(article_content_blocks):
+                    content_for_this_subtitle = article_content_blocks[i]
+                    paragraphs = str(content_for_this_subtitle).strip().split("\n\n")
+                    for p_content in paragraphs:
+                        if p_content.strip():
+                            p_content_with_br = p_content.strip().replace(
+                                "\n", "<br>\n"
+                            )
+                            article_html_parts.append(
+                                f'<p style="{p_style_html}">{p_content_with_br}</p>\n'
+                            )
+                else:
+                    article_html_parts.append(
+                        f'<p style="{warning_message_style_html}">このサブタイトル「{str(subtitle_text).strip()}」に対応するコンテンツブロックが生成されませんでした。</p>\n'
+                    )
+
         elif state.get("initial_article_content"):
             if not current_error_val:
                 article_html_parts.append(
-                    f'<p style="{warning_message_style_html}"><strong>注意:</strong> 記事の内部構造が期待通りに生成されなかったため、結合された内容を表示します。</p>'
+                    f'<p style="{warning_message_style_html}"><strong>注意:</strong> 記事の内部構造が期待通りに生成されなかったか、エラーが発生したため、結合された内容を表示します。</p>'
                 )
             else:
                 article_html_parts.append(
                     f'<p style="{info_message_style_html}">エラーが発生しましたが、部分的に生成された可能性のあるコンテンツを以下に示します:</p>'
                 )
-
             paragraphs = (
                 str(state.get("initial_article_content", "")).strip().split("\n\n")
             )
@@ -666,15 +804,20 @@ def generate_article_workflow(
         return {**state, "html_output": final_html_output}
 
     workflow = StateGraph(AgentState)
-    workflow.add_node("generate_prefecture_image", generate_prefecture_image_node)
+    # Add new image generation nodes
+    workflow.add_node("generate_main_theme_image", generate_main_theme_image_node)
+    workflow.add_node("generate_subtitle_images", generate_subtitle_images_node)
+
     workflow.add_node("generate_search_query", generate_search_query_node)
     workflow.add_node("google_search", google_search_node)
     workflow.add_node("scrape_and_prepare_context", scrape_and_prepare_context_node)
     workflow.add_node("generate_structured_article", generate_structured_article_node)
     workflow.add_node("format_html", format_html_node)
 
-    workflow.set_entry_point("generate_prefecture_image")
-    workflow.add_edge("generate_prefecture_image", "generate_search_query")
+    # Update workflow edges
+    workflow.set_entry_point("generate_main_theme_image")
+    workflow.add_edge("generate_main_theme_image", "generate_subtitle_images")
+    workflow.add_edge("generate_subtitle_images", "generate_search_query")
     workflow.add_edge("generate_search_query", "google_search")
     workflow.add_edge("google_search", "scrape_and_prepare_context")
     workflow.add_edge("scrape_and_prepare_context", "generate_structured_article")
@@ -705,7 +848,8 @@ def generate_article_workflow(
         "generated_article_json": {},
         "initial_article_title": "",
         "initial_article_content": "",
-        "prefecture_image_path": None,
+        "main_theme_image_path": None,
+        "subtitle_image_paths": None,
         "html_output": "",
         "error": None,
     }
@@ -713,7 +857,9 @@ def generate_article_workflow(
     final_state_result = None
     try:
         print("\n--- ワークフロー実行開始 ---")
-        final_state_result = app.invoke(initial_state, {"recursion_limit": 20})
+        final_state_result = app.invoke(
+            initial_state, {"recursion_limit": 25}
+        )  # Increased recursion limit slightly due to more nodes
         print("--- ワークフロー実行完了 ---")
     except Exception as e_invoke:
         error_msg = f"ワークフロー実行(invoke)中にエラー: {e_invoke}"
@@ -782,8 +928,11 @@ def generate_article_workflow(
             "html_output": html_content_output,
             "error_message": error_message_from_state,
             "final_state_summary": final_state_summary_dict,
-            "prefecture_image_path_final": final_state_result.get(
-                "prefecture_image_path"
+            "main_theme_image_path_final": final_state_result.get(
+                "main_theme_image_path"
+            ),
+            "subtitle_image_paths_final": final_state_result.get(
+                "subtitle_image_paths"
             ),
         }
     else:
@@ -799,41 +948,3 @@ def generate_article_workflow(
             "error_message": no_final_state_msg,
             "final_state_summary": {"error": no_final_state_msg},
         }
-
-
-if __name__ == "__main__":
-    print("メイン実行ブロック開始...")
-    test_main_title = "東京都"
-    test_subtitles = [
-        "東京の歴史的変遷とその現代的意義",
-        "文化の坩堝としての東京：多様性と創造性",
-        "未来都市東京の展望と課題",
-    ]
-    attempt_flag = True
-    print(f"\n記事生成ワークフローを呼び出します (タイトル: '{test_main_title}')...")
-    result = generate_article_workflow(
-        test_main_title, test_subtitles, attempt_prefecture_image=attempt_flag
-    )
-    print("\n--- ワークフローからの最終結果 ---")
-    print(f"成功ステータス: {result.get('success')}")
-    print(f"メインタイトル（入力）: {result.get('main_title')}")
-    if result.get("error_message"):
-        print(f"エラーメッセージ: {result.get('error_message')}")
-
-    if result.get("prefecture_image_path_final"):
-        print(
-            f"最終的な都道府県画像パス（状態より）: {result.get('prefecture_image_path_final')}"
-        )
-
-    output_html_file = "generated_article_output.html"
-    try:
-        with open(output_html_file, "w", encoding="utf-8") as f:
-            f.write(
-                result.get(
-                    "html_output", "<p>HTMLコンテンツが生成されませんでした。</p>"
-                )
-            )
-        print(f"HTML出力は '{output_html_file}' に保存されました。")
-    except Exception as e_write:
-        print(f"HTMLファイルの書き出し中にエラー: {e_write}")
-    print("\nメイン実行ブロック終了。")
