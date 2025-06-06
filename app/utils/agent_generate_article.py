@@ -1,27 +1,26 @@
+# article_workflow.py
 import os
-from typing import TypedDict, List, Dict, Any
 import traceback
+from typing import TypedDict, List, Dict, Any
+import base64  # Added for image embedding
 
 from langchain_google_vertexai import ChatVertexAI
-
-
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.exceptions import OutputParserException
-
-# Pydanticモデル
 from pydantic import BaseModel, Field
 
-from config.env_config import (
-    get_env_config,
-)
+from config.env_config import get_env_config
 
 from langchain_google_community.search import GoogleSearchAPIWrapper
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_community.document_transformers import BeautifulSoupTransformer
 
-# LangGraph
 from langgraph.graph import StateGraph, END
+
+# Keep both image generation functions
+from utils.generate_four_images import generate_four_images
+from utils.generate_titles_images import generate_prefecture_image_and_get_path
 
 
 # --- Pydanticモデル定義 (記事構造) ---
@@ -42,6 +41,8 @@ class AgentState(TypedDict):
     generated_article_json: Dict[str, Any]
     initial_article_title: str
     initial_article_content: str
+    main_theme_image_path: str | None  # For generate_four_images
+    subtitle_image_paths: List[str] | None  # For generate_prefecture_image_and_get_path
     html_output: str
     error: str | None
 
@@ -49,14 +50,21 @@ class AgentState(TypedDict):
 def generate_article_workflow(
     main_title_input: str,
     subtitles_input: List[str],
+    attempt_prefecture_image: bool = True,
 ) -> Dict[str, Any]:
     """
     指定されたメインタイトルとサブタイトルリストに基づいて記事を生成するワークフローを実行します。
-    HTMLコンテンツは返り値の辞書に含まれます。
+    `attempt_prefecture_image` がTrueの場合、2種類の画像生成を試みます:
+    1. `generate_four_images` でメインタイトルに基づいた画像を生成。
+    2. `generate_prefecture_image_and_get_path` で各サブタイトルに基づいた画像を生成。
     """
     print(
         f"\n--- 「{main_title_input}」に関する記事生成を開始します (サブタイトル数: {len(subtitles_input)}) ---"
     )
+    if attempt_prefecture_image:
+        print(
+            f"--- 画像生成を試みます (メインテーマ: {main_title_input}, サブタイトル別) ---"
+        )
 
     GENERATE_ARTICLE_PROMPT_TEXT = """
 以下の検索結果、メインタイトル、およびサブタイトルリストに基づいて、高品質なブログ記事を作成してください。
@@ -127,37 +135,20 @@ def generate_article_workflow(
             "success": False,
             "main_title": main_title_input,
             "subtitles": subtitles_input,
-            "html_output": f"<h1>設定エラー</h1><p>{error_msg}</p>",  # エラー時もHTMLを返す
+            "html_output": f"<h1>設定エラー</h1><p>{error_msg}</p>",
             "error_message": error_msg,
             "final_state_summary": None,
         }
 
     try:
-        # Vertex AIのChatVertexAIモデルを初期化
-        # 注意: safety_settings パラメータでコンテンツフィルタリングのレベルを調整できます。
-        # LLMからの応答がnullになる場合、これが原因である可能性が高いです。
-        # from langchain_google_vertexai.types import HarmCategory, HarmBlockThreshold
-        # safety_settings = {
-        #     HarmCategory.HARM_CATEGORY_UNSPECIFIED: HarmBlockThreshold.BLOCK_NONE,
-        #     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        #     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        #     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        #     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        # }
-        # llm = ChatVertexAI(..., safety_settings=safety_settings)
-        # 上記は一例です。適切な設定はユースケースにより異なります。
-        # Vertex AI Studioのコンソールでテストし、適切な設定を見つけることを推奨します。
         llm = ChatVertexAI(
-            model_name=settings.get(
-                "model_name", "gemini-1.0-pro-001"
-            ),  # Gemini 1.5 Flash/Pro も検討可能
-            temperature=settings.get(
-                "temperature", 0.7
-            ),  # 設定ファイルから取得できるようにする
+            model_name=settings.get("model_name", "gemini-1.5-flash-001"),
+            project=settings.get("gcp_project_id"),
+            location=settings.get("gcp_location"),
+            temperature=settings.get("temperature", 0.7),
             max_output_tokens=settings.get("max_output_tokens", 8192),
             max_retries=settings.get("max_retries", 3),
             stop=None,
-            # convert_system_message_to_human=True # Gemini 1.0 Pro はSystemMessageをサポート
         )
         search_wrapper = GoogleSearchAPIWrapper(
             google_api_key=google_api_key,
@@ -178,14 +169,148 @@ def generate_article_workflow(
         }
 
     # --- ノード定義 ---
+    def generate_main_theme_image_node(state: AgentState) -> AgentState:
+        if not attempt_prefecture_image:
+            print("--- メインテーマ画像生成スキップ (フラグOFF) ---")
+            return {
+                **state,
+                "main_theme_image_path": None,
+            }  # error is handled by subsequent nodes or preserved
+
+        current_error = state.get("error")
+        print("--- ステップ0a: メインテーマ画像生成 (generate_four_images) ---")
+        prefecture_name_for_image = state["main_title"]
+        try:
+            print(
+                f"generate_four_images を呼び出します (対象: {prefecture_name_for_image})..."
+            )
+            # generate_four_images is expected to return a single path or None
+            image_path = generate_four_images(prefecture_name_for_image)
+            if image_path:
+                print(f"メインテーマ画像が生成され、一時保存されました: {image_path}")
+                return {
+                    **state,
+                    "main_theme_image_path": image_path,
+                    "error": current_error,  # Preserve previous error
+                }
+            else:
+                print(
+                    f"メインテーマ画像の生成に失敗 (パス返されず): {prefecture_name_for_image}"
+                )
+                return {
+                    **state,
+                    "main_theme_image_path": None,
+                    "error": current_error,
+                }
+        except Exception as e_img_main:
+            error_detail_img = (
+                f"メインテーマ画像の生成中にエラー (generate_four_images): {e_img_main}"
+            )
+            print(error_detail_img)
+            updated_error = (
+                f"{current_error}\n{error_detail_img}"
+                if current_error
+                else error_detail_img
+            )
+            return {**state, "main_theme_image_path": None, "error": updated_error}
+
+    def generate_subtitle_images_node(state: AgentState) -> AgentState:
+        if not attempt_prefecture_image:
+            print("--- サブタイトル別画像生成スキップ (フラグOFF) ---")
+            return {**state, "subtitle_image_paths": None}
+
+        current_error = state.get("error")
+        print(
+            "--- ステップ0b: サブタイトル別画像生成 (generate_prefecture_image_and_get_path) ---"
+        )
+
+        prefecture_name = state["main_title"]
+        main_theme_for_image_prompt = state[
+            "main_title"
+        ]  # This is the 'main_title' for the image prompt function
+        sub_themes_for_images = state["subtitles"]
+
+        if not sub_themes_for_images:
+            print(
+                f"サブタイトルリストが空のため、サブタイトル別画像生成をスキップします (都道府県: {prefecture_name})。"
+            )
+            return {
+                **state,
+                "subtitle_image_paths": None,
+                "error": current_error,
+            }
+
+        try:
+            print(
+                f"generate_prefecture_image_and_get_path を呼び出します (都道府県: {prefecture_name}, メインテーマ(プロンプト用): {main_theme_for_image_prompt}, サブテーマ数: {len(sub_themes_for_images)})..."
+            )
+
+            gcp_project_id = settings.get("gcp_project_id")
+            gcp_location = settings.get("gcp_location")
+            llm_model_for_img_prompt = settings.get(
+                "llm_model_name_for_image_prompt",
+                settings.get("model_name", "gemini-1.5-flash-001"),
+            )
+            image_gen_model = settings.get(
+                "image_gen_model_name", "imagen-3.0-fast-generate-001"
+            )
+
+            if not all([gcp_project_id, gcp_location]):
+                img_error_detail = "サブタイトル別画像生成に必要なGCPプロジェクトIDまたはロケーションが設定されていません。"
+                print(img_error_detail)
+                updated_error = (
+                    f"{current_error}\n{img_error_detail}"
+                    if current_error
+                    else img_error_detail
+                )
+                return {**state, "subtitle_image_paths": None, "error": updated_error}
+
+            image_paths_list = generate_prefecture_image_and_get_path(
+                prefecture=prefecture_name,  # For regional characteristics
+                main_title=main_theme_for_image_prompt,  # For overall theme for prompt generator
+                sub_titles=sub_themes_for_images,  # Specific themes for each image
+                gcp_project_id=gcp_project_id,
+                gcp_location=gcp_location,
+                llm_model_name=llm_model_for_img_prompt,
+                image_gen_model_name=image_gen_model,
+            )
+
+            if image_paths_list:
+                print(
+                    f"サブタイトル別画像が {len(image_paths_list)}枚 生成され、一時保存されました。"
+                )
+                return {
+                    **state,
+                    "subtitle_image_paths": image_paths_list,
+                    "error": current_error,
+                }
+            else:
+                print(
+                    f"サブタイトル別画像の生成に失敗 (パスリスト返されず): {prefecture_name}"
+                )
+                return {
+                    **state,
+                    "subtitle_image_paths": None,
+                    "error": current_error,
+                }
+        except Exception as e_img_sub:
+            error_detail_img = f"サブタイトル別画像の生成中にエラー (generate_prefecture_image_and_get_path): {e_img_sub}"
+            print(error_detail_img)
+            updated_error = (
+                f"{current_error}\n{error_detail_img}"
+                if current_error
+                else error_detail_img
+            )
+            return {**state, "subtitle_image_paths": None, "error": updated_error}
+
     def generate_search_query_node(state: AgentState) -> AgentState:
+        current_error = state.get("error")
         print("--- ステップ1a: 検索クエリ生成 ---")
         main_title = state["main_title"]
         subtitles = state["subtitles"]
-        # サブタイトルがリストであることを確認
         if not isinstance(subtitles, list):
             print(f"警告: subtitlesがリストではありません: {subtitles}")
-            subtitles_str = str(subtitles)  # エラー回避のため文字列化
+            subtitles_str = str(subtitles)
         else:
             subtitles_str = " ".join(subtitles)
 
@@ -193,62 +318,61 @@ def generate_article_workflow(
             f"{main_title} {subtitles_str} 詳細 解説 歴史 最新情報 考察 背景 意味 本質"
         )
         print(f"生成された検索クエリ: {search_query}")
-        return {**state, "search_query": search_query, "error": None}
+        return {**state, "search_query": search_query, "error": current_error}
 
     def google_search_node(state: AgentState) -> AgentState:
-        if state.get("error"):
-            return state
+        current_error = state.get("error")
         print("--- ステップ1b: Google検索実行 ---")
         query = state["search_query"]
-        num_results = settings.get("num_search_results", 5)
         try:
-            print(f"Google検索中 (クエリ: {query}, {num_results}件)...")
+            print(f"Google検索中 (クエリ: {query})...")
             search_results_list = search_wrapper.results(
-                query=query, num_results=num_results
+                query=query,
+                num_results=settings.get("search_num_results", 5),
             )
-            if not search_results_list:  # 検索結果が空の場合
+
+            if not search_results_list:
                 print("Google検索結果が空でした。")
                 return {
                     **state,
                     "raw_search_results": [],
-                    "error": None,
-                }  # エラーとはしない
+                    "error": current_error,
+                }
 
             print(f"検索結果 {len(search_results_list)} 件取得完了。")
             return {
                 **state,
                 "raw_search_results": search_results_list,
-                "error": None,
+                "error": current_error,
             }
         except Exception as e:
             error_detail = f"Google検索中にエラーが発生しました: {e}"
             print(error_detail)
-            # traceback.print_exc() # デバッグ時のみ有効化
-            # Google検索エラーの場合、raw_search_resultsを空リストにし、エラーメッセージを設定
+            updated_error = (
+                f"{current_error}\n{error_detail}" if current_error else error_detail
+            )
             return {
                 **state,
                 "raw_search_results": [],
-                "error": f"Google検索エラー: {str(e)}",
+                "error": updated_error,
             }
 
     def scrape_and_prepare_context_node(state: AgentState) -> AgentState:
-        if state.get("error"):  # 前のノードでエラーがあればスキップ
-            return state
+        current_error = state.get("error")
         print("--- ステップ1c: Webスクレイピングとコンテキスト準備 ---")
-        search_results_list = state.get(
-            "raw_search_results", []
-        )  # 前のノードで空リストの可能性あり
+        search_results_list = state.get("raw_search_results", [])
         scraped_contents = []
         max_content_length_per_page = settings.get(
             "max_content_length_per_page_scrape", 2000
         )
 
-        if not search_results_list:  # 検索結果が実際にない場合
+        if not search_results_list:
             print("検索結果が空のため、スクレイピングをスキップします。")
+            no_search_results_msg = "関連情報は見つかりませんでした。深い考察を行うには情報が不足しています。"
             return {
                 **state,
-                "scraped_context": "関連情報は見つかりませんでした。深い考察を行うには情報が不足しています。",
-                "error": None,
+                "scraped_context": no_search_results_msg,
+                "error": current_error,
             }
 
         print(
@@ -257,11 +381,7 @@ def generate_article_workflow(
         for i, result in enumerate(search_results_list):
             title = result.get("title", "タイトルなし")
             link = result.get("link")
-            snippet = result.get(
-                "snippet", "スニペットなし"
-            )  # スニペットは常に取得できるとは限らない
-
-            # スニペットがない場合は空文字にする
+            snippet = result.get("snippet", "スニペットなし")
             snippet_text = snippet if snippet else "概要なし"
 
             if link:
@@ -270,7 +390,7 @@ def generate_article_workflow(
                     loader = WebBaseLoader(
                         web_path=link,
                         requests_kwargs={
-                            "timeout": 20,
+                            "timeout": 15,
                             "headers": {
                                 "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +[http://www.google.com/bot.html](http://www.google.com/bot.html))"
                             },
@@ -279,7 +399,6 @@ def generate_article_workflow(
                     documents = loader.load()
                     if documents:
                         bs_transformer = BeautifulSoupTransformer()
-                        # unwanted_tags をより積極的に指定して不要な情報を減らす
                         docs_transformed = bs_transformer.transform_documents(
                             documents,
                             tags_to_extract=[
@@ -294,7 +413,7 @@ def generate_article_workflow(
                                 "blockquote",
                                 "td",
                                 "th",
-                            ],  # テーブルセルも追加
+                            ],
                             unwanted_tags=[
                                 "script",
                                 "style",
@@ -326,7 +445,7 @@ def generate_article_workflow(
                         )
                         page_content_after_transform = " ".join(
                             page_content_after_transform.split()
-                        )  # Normalize whitespace
+                        )
 
                         if page_content_after_transform:
                             shortened_content = page_content_after_transform[
@@ -336,26 +455,26 @@ def generate_article_workflow(
                                 scraped_contents.append(
                                     f"参照元URL: {link}\nタイトル: {title}\n内容の抜粋:\n{shortened_content}"
                                 )
-                            else:  # 短縮後コンテンツが空
+                            else:
                                 scraped_contents.append(
-                                    f"参照元URL: {link}\nタイトル: {title}\n概要: {snippet_text}\n(コンテンツ短縮後、空になりました。スニペットを利用します。)"
+                                    f"参照元URL: {link}\nタイトル: {title}\n概要: {snippet_text}\n(コンテンツ短縮後、空。スニペット利用)"
                                 )
-                        else:  # transform後コンテンツが空
+                        else:
                             scraped_contents.append(
-                                f"参照元URL: {link}\nタイトル: {title}\n概要: {snippet_text}\n(BeautifulSoupTransformer適用後コンテンツが空。スニペットを利用します。)"
+                                f"参照元URL: {link}\nタイトル: {title}\n概要: {snippet_text}\n(Transformer適用後コンテンツ空。スニペット利用)"
                             )
-                    else:  # WebBaseLoaderがドキュメントを返さなかった場合
+                    else:
                         scraped_contents.append(
-                            f"参照元URL: {link}\nタイトル: {title}\n概要: {snippet_text}\n(WebBaseLoaderがドキュメントを返さず。スニペットを利用します。)"
+                            f"参照元URL: {link}\nタイトル: {title}\n概要: {snippet_text}\n(WebBaseLoaderがドキュメント返さず。スニペット利用)"
                         )
                 except Exception as e_scrape:
                     print(
                         f"  [詳細エラー] URLからのコンテンツ読み込み/処理エラー: {link} - {e_scrape}"
                     )
                     scraped_contents.append(
-                        f"参照元URL: {link}\nタイトル: {title}\n概要: {snippet_text}\n(コンテンツの読み込み/処理中にエラー: {type(e_scrape).__name__}。スニペットを利用します。)"
+                        f"参照元URL: {link}\nタイトル: {title}\n概要: {snippet_text}\n(読み込み/処理エラー: {type(e_scrape).__name__}。スニペット利用)"
                     )
-            else:  # URLがない場合
+            else:
                 scraped_contents.append(
                     f"タイトル: {title}\n概要: {snippet_text} (URLなし)"
                 )
@@ -363,22 +482,20 @@ def generate_article_workflow(
         search_context_str = (
             "\n\n===\n\n".join(scraped_contents)
             if scraped_contents
-            else "関連性の高いウェブページのコンテンツは見つかりませんでした。深い考察を行うには情報が不足しています。"
+            else "関連性の高いウェブページのコンテンツは見つかりませんでした。"
         )
         print(
             f"ウェブページ読み込み完了。最終的なscraped_contextの文字数: {len(search_context_str)}"
         )
-        return {**state, "scraped_context": search_context_str, "error": None}
+        return {**state, "scraped_context": search_context_str, "error": current_error}
 
     def generate_structured_article_node(state: AgentState) -> AgentState:
-        if state.get("error"):
-            return state
+        current_error = state.get("error")
         print("--- ステップ2: 構造化記事生成 (哲学的トーン) ---")
         main_title = state["main_title"]
-        subtitles_list = state["subtitles"]  # subtitles はリストのはず
+        subtitles_list = state["subtitles"]
         search_context = state["scraped_context"]
 
-        # subtitles_list がリストでない場合のフォールバック
         if not isinstance(subtitles_list, list):
             print(
                 f"警告: generate_structured_article_node で subtitles がリストではありません: {subtitles_list}"
@@ -388,7 +505,7 @@ def generate_article_workflow(
                 if subtitles_list
                 else "- (サブタイトル不明)"
             )
-        elif not subtitles_list:  # 空のリストの場合
+        elif not subtitles_list:
             subtitles_for_prompt = "- (サブタイトルが指定されていません)"
         else:
             subtitles_for_prompt = "\n".join(
@@ -398,115 +515,96 @@ def generate_article_workflow(
         max_search_context_len = settings.get("max_search_context_for_llm", 18000)
         if len(search_context) > max_search_context_len:
             print(
-                f"検索コンテキストが長すぎるため短縮します。元の長さ: {len(search_context)}, 短縮後: {max_search_context_len}"
+                f"検索コンテキストが長すぎるため短縮します。元: {len(search_context)}, 短縮後: {max_search_context_len}"
             )
             search_context = search_context[:max_search_context_len]
 
         try:
             system_template = "あなたは洞察力に優れた哲学者であり、同時に言葉を巧みに操るエッセイストです。与えられた情報から本質を抽出し、読者の知的好奇心を刺激し、深い思索へと誘うような、示唆に富んだ文章を構成してください。あなたの文章は、平易でありながらも深遠な問いを投げかけ、読者自身の内省を促す力を持っています。指定されたJSON形式で、各サブタイトルに対応する考察豊かなコンテンツブロックを作成してください。"
             format_instructions = output_parser.get_format_instructions()
-
             prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", system_template),
-                    ("user", GENERATE_ARTICLE_PROMPT_TEXT),
-                ]
+                [("system", system_template), ("user", GENERATE_ARTICLE_PROMPT_TEXT)]
             ).partial(format_instructions=format_instructions)
-
-            chain = prompt | llm | output_parser  # output_parser がここで適用される
+            chain = prompt | llm | output_parser
             print("LLMによる哲学的記事生成中...")
-
             input_data = {
                 "main_title": main_title,
                 "subtitles": subtitles_for_prompt,
                 "search_results": search_context,
             }
-
             print(
                 f"LLMへの入力データ (一部): main_title='{main_title}', subtitles_preview='{subtitles_for_prompt[:100]}...', search_results_len={len(search_context)}"
             )
 
-            # LLM呼び出しとPydanticオブジェクトへのパース
-            # chain.invoke が LangChain の OutputParserException を投げる可能性がある
             parsed_article_obj = chain.invoke(input_data)
 
             if parsed_article_obj is None:
-                # この状況は、LLMが完全に空か、パース不可能な応答を返し、
-                # かつOutputParserがそれをNoneとして処理した場合に発生する可能性がある。
-                # 通常、PydanticOutputParserはパース失敗時に例外を投げる。
-                print(
-                    "致命的エラー: LLMからのパース結果がNoneでした。これは予期されていません。"
-                )
-                # OutputParserExceptionのllm_outputは、この場合、元のLLMの生の出力（おそらく空や非JSON）であるべき
                 raise OutputParserException(
-                    "Parsed Article object is None. This typically means the LLM output was empty or unparsable, and the parser handled it as None instead of raising a more specific parsing error.",
-                    llm_output="LLM Response led to None after parsing attempt",
+                    "Parsed Article object is None.",
+                    llm_output="LLM Response led to None after parsing.",
                 )
 
-            generated_article_json = (
-                parsed_article_obj.model_dump()
-            )  # Pydanticモデルを辞書に変換
-            article_main_title = generated_article_json.get(
-                "title", main_title
-            )  # フォールバック
-            article_blocks = generated_article_json.get("block", [])  # フォールバック
+            generated_article_json = parsed_article_obj.model_dump()
+            article_main_title_gen = generated_article_json.get("title", main_title)
+            article_blocks_gen = generated_article_json.get("block", [])
 
-            if (
-                not article_main_title and not article_blocks
-            ):  # titleもblockも空なら問題あり
-                print("LLMがtitleとblockの両方を生成できませんでした。")
-                # エラーメッセージを具体的に
-                error_msg_content = "LLMが記事のタイトルと本文ブロックの両方を生成できませんでした。プロンプトまたは入力データに問題がある可能性があります。"
-                return {
-                    **state,
-                    "error": f"記事構造生成エラー: {error_msg_content}\nLLM Output (parsed to JSON): {generated_article_json}",
-                }
+            if not article_main_title_gen and not article_blocks_gen:
+                error_msg_content = (
+                    "LLMが記事のタイトルと本文ブロックの両方を生成できませんでした。"
+                )
+                updated_error = (
+                    f"{current_error}\n記事構造生成エラー: {error_msg_content}"
+                    if current_error
+                    else f"記事構造生成エラー: {error_msg_content}"
+                )
+                return {**state, "error": updated_error}
 
-            # サブタイトル数とブロック数の一致チェック（リストの場合のみ）
-            if isinstance(subtitles_list, list) and len(article_blocks) != len(
+            if isinstance(subtitles_list, list) and len(article_blocks_gen) != len(
                 subtitles_list
             ):
                 print(
-                    f"警告: 生成されたコンテンツブロック数 ({len(article_blocks)}) がサブタイトル数 ({len(subtitles_list)}) と一致しません。"
+                    f"警告: 生成されたコンテンツブロック数 ({len(article_blocks_gen)}) がサブタイトル数 ({len(subtitles_list)}) と一致しません。"
                 )
 
-            article_combined_content = "\n\n".join(
-                article_blocks
-            )  # リスト内の文字列を結合
-            print(f"哲学的記事生成完了。タイトル: {article_main_title}")
-
+            article_combined_content_gen = "\n\n".join(article_blocks_gen)
+            print(f"哲学的記事生成完了。タイトル: {article_main_title_gen}")
             return {
                 **state,
                 "generated_article_json": generated_article_json,
-                "initial_article_title": article_main_title,
-                "initial_article_content": article_combined_content,
-                "error": None,
+                "initial_article_title": article_main_title_gen,
+                "initial_article_content": article_combined_content_gen,
+                "error": current_error,
             }
         except OutputParserException as e_parse:
-            # e_parse.llm_output にはパース試行前のLLMの生の文字列出力が含まれる
             llm_raw_output = (
                 e_parse.llm_output if hasattr(e_parse, "llm_output") else "LLM出力不明"
             )
-            if llm_raw_output is None:  # LLMが実際にNoneを返した場合
-                llm_raw_output = "LLM returned a null/None response."
-
+            if llm_raw_output is None:
+                llm_raw_output = "LLM returned null/None."
             error_detail = f"記事生成中にOutputParserエラー: {str(e_parse)}\nLLM Raw Output:\n{llm_raw_output}"
             print(error_detail)
-            return {
-                **state,
-                "error": f"記事生成パーサーエラー: {str(e_parse)}\nLLM Output: {llm_raw_output}",
-            }
-        except Exception as e:  # その他の予期せぬエラー
+            updated_error = (
+                f"{current_error}\n{error_detail}" if current_error else error_detail
+            )
+            return {**state, "error": updated_error}
+        except Exception as e:
             error_detail = f"記事生成中に予期せぬ汎用エラー: {e}"
             print(error_detail)
             traceback.print_exc()
-            return {**state, "error": f"記事生成汎用エラー: {str(e)}"}
+            updated_error = (
+                f"{current_error}\n{error_detail}" if current_error else error_detail
+            )
+            return {**state, "error": updated_error}
 
     def format_html_node(state: AgentState) -> AgentState:
         print("--- ステップ3: HTML整形 (インラインスタイル) ---")
-        html_main_title_text = state.get("initial_article_title") or state.get(
-            "main_title", "考察記事"
+        html_doc_title = state.get("initial_article_title") or state.get(
+            "main_title", "生成された考察記事"
         )
+        display_main_title_text = state.get(
+            "initial_article_title", state.get("main_title", "考察記事")
+        )
+
         subtitles_list = state.get("subtitles", [])
         generated_json = (
             state.get("generated_article_json")
@@ -519,88 +617,149 @@ def generate_article_workflow(
             else []
         )
 
+        main_theme_image_path_val = state.get("main_theme_image_path")
+        subtitle_image_paths_val = state.get("subtitle_image_paths")
+        current_error_val = state.get("error")
+
         article_html_parts = []
-        current_error = state.get("error")
 
-        body_style = "font-family: 'Merriweather', 'Georgia', serif; line-height: 1.8; margin: 0; padding: 0; background-color: #f0f0f0; color: #333333;"
-        container_style = "max-width: 800px; margin: 60px auto; background-color: #ffffff; padding: 50px 60px; border-radius: 2px; box-shadow: 0 8px 25px rgba(0,0,0,0.08); border-top: 5px solid #34495e;"
+        # --- インラインスタイル定義 ---
+        body_style = "font-family: 'Merriweather', 'Georgia', serif; line-height: 1.8; margin: 0; padding: 0; background-color: #f4f4f0; color: #3a3a3a;"
+        container_style = "max-width: 800px; margin: 50px auto; background-color: #ffffff; padding: 40px 50px 50px; border-radius: 3px; box-shadow: 0 10px 30px rgba(0,0,0,0.07); border-top: 6px solid #2c3e50;"
+        h1_base_style = "font-family: 'Playfair Display', serif; font-weight: 700; letter-spacing: 0.5px; text-align: center;"
+        main_title_style_html = f"{h1_base_style} font-size: 2.6em; color: #1a1a1a; border-bottom: 2px solid #eaeaea; padding-bottom: 20px; margin-top: 0; margin-bottom: 25px;"  # Adjusted margin
 
-        h1_base_style = "font-family: 'Playfair Display', serif; font-weight: 700; letter-spacing: 0.8px; text-align: center;"
-        main_title_style = f"{h1_base_style} font-size: 2.8em; color: #111111; border-bottom: 2px solid #bdc3c7; padding-bottom: 25px; margin-top: 0; margin-bottom: 40px;"
+        main_img_container_style = (
+            "text-align: center; margin-bottom: 30px;"  # For main theme image
+        )
+        main_img_style = "max-width: 100%; height: auto; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);"
+
+        subtitle_img_container_style = (
+            "text-align: center; margin-top: 15px; margin-bottom: 25px;"
+        )
+        subtitle_img_style = "max-width: 90%; height: auto; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);"
 
         h2_base_style = "font-family: 'Playfair Display', serif; font-weight: 600;"
-        subtitle_style = f"{h2_base_style} font-size: 2.0em; color: #222222; margin-top: 50px; margin-bottom: 25px; border-bottom: 1px solid #dfe4ea; padding-bottom: 15px;"
+        subtitle_style_html = f"{h2_base_style} font-size: 1.9em; color: #1c1c1c; margin-top: 45px; margin-bottom: 10px; border-bottom: 1px solid #f0f0f0; padding-bottom: 12px;"
 
-        p_style = "margin-bottom: 2em; font-size: 1.15em; color: #333333; text-align: left; orphans: 2; widows: 2; word-wrap: break-word;"
+        p_style_html = "margin-bottom: 1.8em; font-size: 1.1em; color: #3a3a3a; text-align: justify; hyphens: auto; orphans: 2; widows: 2; word-wrap: break-word;"
+        error_container_style = "padding: 20px; border: 1px solid #d32f2f; background-color: #ffebee; border-radius: 4px; margin-bottom: 20px;"
+        error_title_style_html = f"{h1_base_style} font-size: 1.8em; color: #b71c1c; text-align: left; margin-bottom: 10px;"
+        error_message_style_html = (
+            f"font-size: 1.0em; color: #c62828; margin-bottom: 0.8em;"
+        )
+        warning_message_style_html = f"font-size: 1.0em; color: #8c5a00; background-color: #fff8e1; border: 1px solid #ffecb3; padding: 12px; border-radius: 4px; margin-bottom: 1.5em;"
+        info_message_style_html = f"font-size: 1.0em; color: #555; margin-bottom: 1em;"
+        footer_style_html = "margin-top: 60px; padding-top: 20px; border-top: 1px solid #eaeaea; text-align: center;"
+        footer_text_style_html = (
+            "font-size: 0.9em; color: #888888; font-style: italic; margin: 0;"
+        )
+        # --- スタイル定義ここまで ---
 
-        # blockquote_style には ::before の指定は含められません。
-        blockquote_style = "margin: 30px 0; padding: 25px 30px; border-left: 5px solid #3498db; background-color: #f8f9f9; font-style: normal; color: #333333; position: relative; font-size: 1.1em;"
-
-        pre_style = "background-color: #f5f5f5; padding: 15px; border: 1px solid #ddd; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-size: 0.9em; color: #333333; overflow-x: auto;"
-
-        # エラー・情報メッセージ用スタイル
-        error_title_style = f"{h1_base_style} font-size: 2.5em; color: #c0392b; text-align: center; margin-bottom: 20px;"
-        error_message_style = f"font-size: 1.1em; color: #c0392b; margin-bottom: 1em;"
-        error_details_style = f"background-color: #fdecea; border: 1px solid #e6b8b3; color: #a82c20; font-size: 0.9em; padding: 10px; white-space: pre-wrap; word-wrap: break-word;"
-        partial_content_title_style = f"{h2_base_style} font-size: 1.8em; color: #555555; margin-top: 30px; margin-bottom: 15px;"
-        warning_message_style = f"font-size: 1.1em; color: #a16207; background-color: #fef9c3; border: 1px solid #fde68a; padding: 10px; border-radius: 4px; margin-bottom: 1em;"
-        info_message_style = f"font-size: 1.0em; color: #333333; margin-bottom: 1em;"
-        processing_result_title_style = f"{h1_base_style} font-size: 2.0em; color: #333333; text-align: center; margin-bottom: 20px;"
-
-        footer_style = "margin-top: 50px; padding-top: 25px; border-top: 1px solid #dfe4ea; text-align: center;"
-        footer_text_style = (
-            "font-size: 0.95em; color: #7f8c8d; font-style: italic; margin: 0;"
+        article_html_parts.append(
+            f'<h1 style="{main_title_style_html}">{display_main_title_text}</h1>\n'
         )
 
-        # エラー発生時のHTML生成
-        if current_error:
-            article_html_parts.append(
-                f'<h1 style="{error_title_style}">思索の途絶</h1>'
-                f'<p style="{error_message_style}">記事の構成中に予期せぬ障害が発生しました。</p>'
-                f'<p style="{error_message_style}"><strong>エラー詳細:</strong></p>'
-                f'<pre style="{error_details_style}">{current_error}</pre><hr style="border: none; border-top: 1px solid #dfe4ea; margin-top: 20px; margin-bottom: 20px;">'
-            )
-            if subtitles_list and article_content_blocks:
-                article_html_parts.append(
-                    f'<h2 style="{partial_content_title_style}">部分的に生成された可能性のあるコンテンツ:</h2>'
+        # Embed main theme image if available
+        if main_theme_image_path_val:
+            try:
+                with open(main_theme_image_path_val, "rb") as img_file:
+                    b64_string = base64.b64encode(img_file.read()).decode()
+                    article_html_parts.append(
+                        f'<div style="{main_img_container_style}">'
+                    )
+                    article_html_parts.append(
+                        f'  <img src="data:image/png;base64,{b64_string}" alt="Generated image for {display_main_title_text}" style="{main_img_style}">'
+                    )
+                    article_html_parts.append(f"</div>\n")
+                    print(
+                        f"メインテーマ画像をBase64エンコードしてHTMLに埋め込みました: {main_theme_image_path_val}"
+                    )
+            except Exception as e_main_img_embed:
+                print(
+                    f"メインテーマ画像ファイル ({main_theme_image_path_val}) の読み込みまたはBase64エンコードに失敗: {e_main_img_embed}"
                 )
-            elif state.get("initial_article_content"):
                 article_html_parts.append(
-                    f'<h2 style="{partial_content_title_style}">部分的に生成された可能性のあるコンテンツ（結合済み）:</h2>'
+                    f'<p style="{error_message_style_html}">メインテーマ画像 ({main_theme_image_path_val}) の表示に失敗しました。</p>\n'
                 )
 
-        # メインコンテンツのHTML生成
+        if current_error_val:
+            article_html_parts.append(f'<div style="{error_container_style}">')
+            article_html_parts.append(
+                f'<h2 style="{error_title_style_html}">処理中に問題が発生しました</h2>'
+            )
+            error_lines = str(current_error_val).split("\n")
+            for line in error_lines:
+                if line.strip():
+                    article_html_parts.append(
+                        f'<p style="{error_message_style_html}">{line}</p>'
+                    )
+            article_html_parts.append(f"</div>\n")
+
         if (
-            subtitles_list
+            isinstance(subtitles_list, list)
+            and subtitles_list
             and article_content_blocks
-            and len(subtitles_list) == len(article_content_blocks)
+            and not current_error_val
         ):
             for i, subtitle_text in enumerate(subtitles_list):
                 article_html_parts.append(
-                    f'<h2 style="{subtitle_style}">{str(subtitle_text).strip()}</h2>\n'
+                    f'<h2 style="{subtitle_style_html}">{str(subtitle_text).strip()}</h2>\n'
                 )
-                content_for_this_subtitle = (
-                    article_content_blocks[i]
-                    if i < len(article_content_blocks)
-                    else "コンテンツが生成されませんでした。"
-                )
-                paragraphs = str(content_for_this_subtitle).strip().split("\n\n")
-                for p_content in paragraphs:
-                    if p_content.strip():
-                        p_content_with_br = p_content.strip().replace(
-                            "\n", "<br>\n"
-                        )  # <br>にはインラインスタイルは直接適用しづらい
-                        # LLMが生成するテキスト内に <blockquote> や <pre> が含まれる場合、
-                        # それらにインラインスタイルを付与するには、ここでHTMLパーサーを使うなど高度な処理が必要です。
-                        # 現状は、もしLLMがこれらのタグを生成した場合、スタイルは適用されません。
-                        # 必要であれば、LLMにインラインスタイル付きでHTMLを生成させるようプロンプトを調整する必要があります。
-                        article_html_parts.append(
-                            f'<p style="{p_style}">{p_content_with_br}</p>\n'
+
+                # Embed subtitle-specific image if available
+                if (
+                    subtitle_image_paths_val
+                    and isinstance(subtitle_image_paths_val, list)
+                    and i < len(subtitle_image_paths_val)
+                    and subtitle_image_paths_val[i]
+                ):
+                    image_path_for_subtitle = subtitle_image_paths_val[i]
+                    try:
+                        with open(image_path_for_subtitle, "rb") as img_file:
+                            b64_string = base64.b64encode(img_file.read()).decode()
+                            article_html_parts.append(
+                                f'<div style="{subtitle_img_container_style}">'
+                            )
+                            article_html_parts.append(
+                                f'  <img src="data:image/png;base64,{b64_string}" alt="Generated image for {str(subtitle_text).strip()}" style="{subtitle_img_style}">'
+                            )
+                            article_html_parts.append(f"</div>\n")
+                            print(
+                                f"サブタイトル用画像 ('{str(subtitle_text).strip()}') を埋め込み: {image_path_for_subtitle}"
+                            )
+                    except Exception as e_img_embed_subtitle:
+                        print(
+                            f"サブタイトル用画像ファイル ({image_path_for_subtitle}) の読み込み/エンコード失敗: {e_img_embed_subtitle}"
                         )
-        elif state.get("initial_article_content"):  # フォールバック
-            if not current_error:
+                        article_html_parts.append(
+                            f'<p style="{error_message_style_html}">画像 ({image_path_for_subtitle}) の表示失敗。</p>\n'
+                        )
+
+                if i < len(article_content_blocks):
+                    content_for_this_subtitle = article_content_blocks[i]
+                    paragraphs = str(content_for_this_subtitle).strip().split("\n\n")
+                    for p_content in paragraphs:
+                        if p_content.strip():
+                            p_content_with_br = p_content.strip().replace(
+                                "\n", "<br>\n"
+                            )
+                            article_html_parts.append(
+                                f'<p style="{p_style_html}">{p_content_with_br}</p>\n'
+                            )
+                else:
+                    article_html_parts.append(
+                        f'<p style="{warning_message_style_html}">このサブタイトル「{str(subtitle_text).strip()}」に対応するコンテンツブロックが生成されませんでした。</p>\n'
+                    )
+
+        elif state.get("initial_article_content"):
+            if not current_error_val:
                 article_html_parts.append(
-                    f'<p style="{warning_message_style}"><strong>注意:</strong> 記事の内部構造が期待通りに生成されなかったため、結合された内容を表示します。</p>'
+                    f'<p style="{warning_message_style_html}"><strong>注意:</strong> 記事の内部構造が期待通りに生成されなかったか、エラーが発生したため、結合された内容を表示します。</p>'
+                )
+            else:
+                article_html_parts.append(
+                    f'<p style="{info_message_style_html}">エラーが発生しましたが、部分的に生成された可能性のあるコンテンツを以下に示します:</p>'
                 )
             paragraphs = (
                 str(state.get("initial_article_content", "")).strip().split("\n\n")
@@ -609,80 +768,60 @@ def generate_article_workflow(
                 if p_content.strip():
                     p_content_with_br = p_content.strip().replace("\n", "<br>\n")
                     article_html_parts.append(
-                        f'<p style="{p_style}">{p_content_with_br}</p>\n'
+                        f'<p style="{p_style_html}">{p_content_with_br}</p>\n'
                     )
-        elif not current_error:  # エラーがなく、コンテンツも全くない場合
+        elif not current_error_val:
             article_html_parts.append(
-                f'<p style="{info_message_style}">言葉はまだ紡がれていません。記事コンテンツが生成されませんでした。</p>'
+                f'<p style="{info_message_style_html}">言葉はまだ紡がれていません。記事コンテンツが生成されませんでした。</p>'
             )
 
-        if not article_html_parts:  # HTMLパーツが空の場合の最終フォールバック
-            error_info_html = f"<br>エラー: {current_error}" if current_error else ""
+        if not article_html_parts and not current_error_val:
             article_html_parts.append(
-                f'<h1 style="{processing_result_title_style}">処理結果</h1>'
-                f'<p style="{info_message_style}">記事の生成処理は完了しましたが、表示できるコンテンツがありません。{error_info_html}</p>'
+                f'<p style="{info_message_style_html}">表示できるコンテンツがありません。</p>'
             )
 
-        article_html_body = "".join(article_html_parts)
+        article_html_body_content = "".join(article_html_parts)
 
-        # <style> タグは使用しない
-
-        html_output_content = f"""<!DOCTYPE html>
-    <html lang="ja">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{html_main_title_text}</title>
-        {'''
-        '''}
-    </head>
-    <body style="{body_style}">
-        <div style="{container_style}">
-            <h1 style="{main_title_style}">{html_main_title_text}</h1>
-            {article_html_body}
-            <div style="{footer_style}">
-                <p style="{footer_text_style}">この記事が、あなたの思索の一助となれば幸いです。</p>
-            </div>
+        final_html_output = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{html_doc_title}</title>
+    <link href="[https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,400;0,700;1,400&family=Playfair+Display:wght@600;700&display=swap](https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,400;0,700;1,400&family=Playfair+Display:wght@600;700&display=swap)" rel="stylesheet">
+</head>
+<body style="{body_style}">
+    <div style="{container_style}">
+        {article_html_body_content}
+        <div style="{footer_style_html}">
+            <p style="{footer_text_style_html}">この記事が、あなたの思索の一助となれば幸いです。</p>
         </div>
-    </body></html>
-    """
+    </div>
+</body>
+</html>
+"""
         print("HTML整形完了 (インラインスタイル)。")
-        return {**state, "html_output": html_output_content, "error": current_error}
+        return {**state, "html_output": final_html_output}
 
     workflow = StateGraph(AgentState)
+    # Add new image generation nodes
+    workflow.add_node("generate_main_theme_image", generate_main_theme_image_node)
+    workflow.add_node("generate_subtitle_images", generate_subtitle_images_node)
+
     workflow.add_node("generate_search_query", generate_search_query_node)
     workflow.add_node("google_search", google_search_node)
     workflow.add_node("scrape_and_prepare_context", scrape_and_prepare_context_node)
     workflow.add_node("generate_structured_article", generate_structured_article_node)
     workflow.add_node("format_html", format_html_node)
 
-    workflow.set_entry_point("generate_search_query")
-
-    def decide_next_step_after_search_query(state: AgentState) -> str:
-        return "format_html" if state.get("error") else "google_search"
-
-    def decide_next_step_after_google_search(state: AgentState) -> str:
-        return "format_html" if state.get("error") else "scrape_and_prepare_context"
-
-    def decide_next_step_after_scrape(state: AgentState) -> str:
-        return "format_html" if state.get("error") else "generate_structured_article"
-
-    def decide_next_step_after_article_gen(state: AgentState) -> str:
-        return "format_html"
-
-    workflow.add_conditional_edges(
-        "generate_search_query", decide_next_step_after_search_query
-    )
-    workflow.add_conditional_edges(
-        "google_search", decide_next_step_after_google_search
-    )
-    workflow.add_conditional_edges(
-        "scrape_and_prepare_context", decide_next_step_after_scrape
-    )
-    workflow.add_conditional_edges(
-        "generate_structured_article", decide_next_step_after_article_gen
-    )
-
+    # Update workflow edges
+    workflow.set_entry_point("generate_main_theme_image")
+    workflow.add_edge("generate_main_theme_image", "generate_subtitle_images")
+    workflow.add_edge("generate_subtitle_images", "generate_search_query")
+    workflow.add_edge("generate_search_query", "google_search")
+    workflow.add_edge("google_search", "scrape_and_prepare_context")
+    workflow.add_edge("scrape_and_prepare_context", "generate_structured_article")
+    workflow.add_edge("generate_structured_article", "format_html")
     workflow.add_edge("format_html", END)
 
     try:
@@ -709,26 +848,32 @@ def generate_article_workflow(
         "generated_article_json": {},
         "initial_article_title": "",
         "initial_article_content": "",
+        "main_theme_image_path": None,
+        "subtitle_image_paths": None,
         "html_output": "",
         "error": None,
     }
 
     final_state_result = None
     try:
-
-        final_state_result = app.invoke(initial_state, {"recursion_limit": 15})
-
-    except Exception as e_stream:
-        error_msg = f"ワークフロー実行(invoke)中にエラー: {e_stream}"
+        print("\n--- ワークフロー実行開始 ---")
+        final_state_result = app.invoke(
+            initial_state, {"recursion_limit": 25}
+        )  # Increased recursion limit slightly due to more nodes
+        print("--- ワークフロー実行完了 ---")
+    except Exception as e_invoke:
+        error_msg = f"ワークフロー実行(invoke)中にエラー: {e_invoke}"
         print(error_msg)
         traceback.print_exc()
-        current_html = (
-            final_state_result.get("html_output", "")
-            if isinstance(final_state_result, dict)
-            else ""
-        )
+        current_html_invoke_error = ""
+        if isinstance(final_state_result, dict) and "html_output" in final_state_result:
+            current_html_invoke_error = final_state_result.get("html_output", "")
+        elif isinstance(initial_state, dict) and "html_output" in initial_state:
+            current_html_invoke_error = initial_state.get("html_output", "")
         error_html = f"<h1>ワークフロー実行時エラー</h1><p>{error_msg}</p>" + (
-            "<hr>" + current_html if current_html else ""
+            f"<hr><h3>部分的なHTMLコンテンツ:</h3>{current_html_invoke_error}"
+            if current_html_invoke_error
+            else ""
         )
         return {
             "success": False,
@@ -738,43 +883,57 @@ def generate_article_workflow(
             "error_message": error_msg,
             "final_state_summary": {
                 "error": error_msg,
-                "last_known_state": final_state_result,
+                "last_known_state": (
+                    final_state_result if final_state_result else initial_state
+                ),
             },
         }
 
-    print("\n--- 全ての処理が完了しました ---")
+    print("\n--- 全ての処理が完了しました (ワークフロー終了後) ---")
     if final_state_result:
         error_message_from_state = final_state_result.get("error")
         success_status = not bool(error_message_from_state)
         html_content_output = final_state_result.get("html_output", "")
+        summary_html_preview = html_content_output
+        if len(summary_html_preview) > 300:
+            summary_html_preview = summary_html_preview[:300] + "..."
 
         final_state_summary_dict = {
-            k: (v[:200] + "..." if isinstance(v, str) and len(v) > 200 else v)
+            k: (
+                v[:200] + "..."
+                if isinstance(v, str) and len(v) > 200 and k != "html_output_preview"
+                else v
+            )
             for k, v in final_state_result.items()
-            if k
-            not in [
-                "raw_search_results",
-                "scraped_context",
-                "html_output",
-            ]
+            if k not in ["raw_search_results", "scraped_context", "html_output"]
         }
         final_state_summary_dict["html_output_preview"] = (
-            html_content_output[:200] + "..." if html_content_output else "(HTMLなし)"
+            summary_html_preview if html_content_output else "(HTMLなし)"
         )
 
         print(
-            f"HTML Outputの先頭100文字: {html_content_output[:100] if html_content_output else '（HTMLなし）'}"
+            f"HTML Outputの先頭100文字: {html_content_output[:100].replace(os.linesep, ' ')}"
+            if html_content_output
+            else "（HTMLなし）"
         )
         if error_message_from_state:
-            print(f"完了時のエラーメッセージ: {error_message_from_state}")
+            print(f"完了時のエラーメッセージ:\n{error_message_from_state}")
+        else:
+            print("エラーメッセージはありませんでした。")
 
         return {
             "success": success_status,
-            "main_title": main_title_input,  # 入力値を返す
-            "subtitles": subtitles_input,  # 入力値を返す
+            "main_title": main_title_input,
+            "subtitles": subtitles_input,
             "html_output": html_content_output,
-            "error_message": error_message_from_state,  # 最終的なエラーメッセージ
+            "error_message": error_message_from_state,
             "final_state_summary": final_state_summary_dict,
+            "main_theme_image_path_final": final_state_result.get(
+                "main_theme_image_path"
+            ),
+            "subtitle_image_paths_final": final_state_result.get(
+                "subtitle_image_paths"
+            ),
         }
     else:
         no_final_state_msg = (

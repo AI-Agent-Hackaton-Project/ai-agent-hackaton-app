@@ -2,7 +2,6 @@ import streamlit as st
 
 from utils.agent_generate_article import generate_article_workflow
 from utils.generate_titles import generate_titles_for_prefecture
-from config.constants import JAPAN_PREFECTURES
 
 
 def initialize_session_state():
@@ -18,7 +17,6 @@ def initialize_session_state():
         st.session_state.titles_generated_successfully = False
 
 
-# 新しいヘルパー関数：記事生成の実行と結果表示
 def _execute_and_display_article_generation(
     main_title_for_article, sub_titles_for_article
 ):
