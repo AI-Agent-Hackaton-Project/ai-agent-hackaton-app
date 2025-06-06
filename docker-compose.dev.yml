@@ -1,0 +1,15 @@
+services:
+  app:
+    build:
+      context: .
+    container_name: AI-AGENT-HACKATHON-APP-DEV
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+      - ~/.config/gcloud:/root/.config/gcloud:ro
+    env_file:
+      - .env.dev
+    working_dir: /app
+     
+    command: poetry run streamlit run app/main.py
