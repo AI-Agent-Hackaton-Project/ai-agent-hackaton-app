@@ -1,29 +1,71 @@
-import geopandas as gpd
 import streamlit as st
+import geopandas as gpd
+from shapely.geometry import Point
+from config.constants import INITIAL_CENTER_LON, INITIAL_CENTER_LAT
 
 
 @st.cache_data
-def load_and_prepare_geojson():
-    """
-    GeoJSONを読み込み、ジオメトリを簡素化し、重心を計算します。
-    Returns:
-        gpd.GeoDataFrame: 準備されたGeoDataFrame。
-    """
+def load_geojson():
+    urls = [
+        "https://raw.githubusercontent.com/dataofjapan/land/master/japan.geojson",
+    ]
+    gdf = None
+    for url in urls:
+        try:
+            gdf = gpd.read_file(url)
+            if not gdf.empty:
+                break
+        except Exception:
+            pass
 
-    gdf = gpd.read_file(
-        "https://raw.githubusercontent.com/dataofjapan/land/master/japan.geojson"
-    )
-    original_crs = gdf.crs
+    if gdf is None or gdf.empty:
+        st.error("すべてのGeoJSON URLからデータをロードできませんでした。")
+        return gpd.GeoDataFrame()
 
-    # # パフォーマンス向上のため、ジオメトリを積極的に簡素化 (許容誤差を増やす)
-    gdf["geometry"] = gdf["geometry"].simplify(tolerance=0.01)
+    column_mappings = {
+        "name_ja": "nam_ja",
+        "NAME_JA": "nam_ja",
+        "pref_name": "nam_ja",
+        "name": "nam",
+        "NAME": "nam",
+        "pref": "nam",
+        "prefecture": "nam",
+    }
+    for old_col, new_col in column_mappings.items():
+        if old_col in gdf.columns and new_col not in gdf.columns:
+            gdf[new_col] = gdf[old_col]
 
-    # 無効または空のジオメトリを持つ行を除外
-    gdf = gdf[~gdf.geometry.is_empty & gdf.geometry.is_valid].copy()
-    # CRS情報が失われた場合、元のCRSを再設定
-    if gdf.crs is None and original_crs is not None:
-        gdf = gdf.set_crs(original_crs, allow_override=True)
+    if "nam_ja" not in gdf.columns:
+        gdf["nam_ja"] = gdf.index.astype(str) + "番地域"
+    if "nam" not in gdf.columns:
+        gdf["nam"] = gdf["nam_ja"]
 
-    # 各都道府県の重心を計算
-    gdf["center"] = gdf["geometry"].centroid
+    gdf["nam_ja"] = gdf["nam_ja"].astype(str).replace("", "情報なし").fillna("情報なし")
+    gdf["nam"] = gdf["nam"].astype(str).replace("", "Unknown").fillna("Unknown")
+
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326", allow_override=True)
+    elif gdf.crs.to_string().upper() != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
+
+    if "geometry" not in gdf.columns or gdf["geometry"].isnull().all():
+        st.error("ジオメトリ列が見つからないか、すべて無効です。")
+        return gpd.GeoDataFrame()
+
+    gdf = gdf[gdf.geometry.is_valid & ~gdf.geometry.is_empty].copy()
+    if gdf.empty:
+        st.error("有効なジオメトリがありません。")
+        return gpd.GeoDataFrame()
+
+    gdf["geometry"] = gdf["geometry"].simplify(tolerance=0.01, preserve_topology=True)
+
+    try:
+        gdf["center"] = gdf["geometry"].centroid
+        gdf["center_x"] = gdf["center"].x
+        gdf["center_y"] = gdf["center"].y
+    except Exception:
+        default_center_point = Point(INITIAL_CENTER_LON, INITIAL_CENTER_LAT)
+        gdf["center"] = [default_center_point for _ in range(len(gdf))]
+        gdf["center_x"] = INITIAL_CENTER_LON
+        gdf["center_y"] = INITIAL_CENTER_LAT
     return gdf

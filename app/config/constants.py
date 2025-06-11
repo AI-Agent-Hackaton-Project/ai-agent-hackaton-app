@@ -47,3 +47,20 @@ JAPAN_PREFECTURES = [
     "鹿児島県",
     "沖縄県",
 ]
+
+# --- 基本地図状態値 ---
+INITIAL_CENTER_LON = 138.2529
+INITIAL_CENTER_LAT = 35.6895
+INITIAL_ZOOM = 4
+PLACEHOLDER_SELECTBOX = "未設定"
+DEFAULT_SELECTED_REGION_ON_MAP = ""
+
+# 日本の境界座標（ズーム・パン制限用）
+JAPAN_BOUNDS = {
+    "min_lon": 129,
+    "max_lon": 146,
+    "min_lat": 30,
+    "max_lat": 46,
+    "min_zoom": 4,
+    "max_zoom": 12,
+}
