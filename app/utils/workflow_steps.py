@@ -135,7 +135,8 @@ def generate_aphorism(state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def generate_main_image(
-    state: Dict[str, Any], attempt_prefecture_image: bool = True
+    state: Dict[str, Any],
+    attempt_prefecture_image: bool = True,
 ) -> Dict[str, Any]:
     """4コマ画像を生成"""
     if not attempt_prefecture_image:
@@ -143,7 +144,7 @@ def generate_main_image(
         return state
 
     try:
-        image_path = generate_four_images(state["main_title"])
+        image_path = generate_four_images(state["selected_prefecture_name"])
         state["main_theme_image_path"] = image_path
     except Exception as e:
         state["error"] = f"4コマ画像生成エラー: {e}"
@@ -168,7 +169,7 @@ def generate_subtitle_images(
             raise ValueError("GCP Project ID or Location not configured.")
 
         image_paths = generate_prefecture_image_and_get_path(
-            prefecture=state["main_title"],
+            prefecture=state["selected_prefecture_name"],
             main_title=state["main_title"],
             sub_titles=state["subtitles"],
             gcp_project_id=gcp_project_id,
