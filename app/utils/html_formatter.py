@@ -74,7 +74,8 @@ def build_html_article(
 
     # 名言の追加
     if aphorism:
-        html_parts.append(f'<div style="{styles["aphorism"]}">{aphorism}</div>')
+        html_parts.append(f"<div style='{styles['aphorism_title']}'>哲学者の一言</div>")
+        html_parts.append(f"<div style='{styles['aphorism']}'>{aphorism}</div>")
 
     html_parts.append("</div>")  # header終了
     html_parts.append(f'<div style="{styles["content"]}">')
