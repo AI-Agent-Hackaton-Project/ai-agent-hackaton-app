@@ -1,7 +1,4 @@
-# main.py
 import streamlit as st
-
-
 from utils.state_manager import (
     initialize_session_state,
     process_selected_feature,
