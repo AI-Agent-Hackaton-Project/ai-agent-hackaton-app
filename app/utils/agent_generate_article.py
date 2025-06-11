@@ -34,6 +34,7 @@ class AgentState(TypedDict):
 def generate_single_subtitle_image(
     llm,
     image_model,
+    selected_prefecture_name: str,
     main_title: str,
     subtitle: str,
     regional_characteristics: str,
@@ -46,7 +47,7 @@ def generate_single_subtitle_image(
 
         # 画像プロンプト生成
         image_prompt = _generate_image_prompt(
-            llm, main_title, main_title, subtitle, regional_characteristics
+            llm, selected_prefecture_name, main_title, subtitle, regional_characteristics
         )
 
         # 画像生成実行
@@ -76,6 +77,7 @@ def generate_single_subtitle_image(
 def generate_article_workflow(
     main_title_input: str,
     subtitles_input: List[str],
+    selected_prefecture_name: str,
     attempt_prefecture_image: bool = True,
 ) -> Iterator[Dict[str, Any]]:
     """記事生成ワークフローのメイン関数"""
@@ -86,6 +88,7 @@ def generate_article_workflow(
     state = AgentState(
         main_title=main_title_input,
         subtitles=subtitles_input,
+        selected_prefecture_name=selected_prefecture_name,
         search_query="",
         raw_search_results=[],
         scraped_context="",
@@ -107,7 +110,6 @@ def generate_article_workflow(
             "state": state,
         }
         state = generate_search_query(state)
-
         # ステップ2: Google検索実行
         yield {
             "step": "google_search",
@@ -178,7 +180,7 @@ def generate_article_workflow(
 
                 # 地域特性生成（一度だけ）
                 regional_characteristics = _generate_regional_characteristics(
-                    llm, state["main_title"]
+                    llm, state["selected_prefecture_name"]
                 )
 
                 # 一時ディレクトリ作成
@@ -204,6 +206,7 @@ def generate_article_workflow(
                     image_path = generate_single_subtitle_image(
                         llm,
                         image_model,
+                        state["selected_prefecture_name"],
                         state["main_title"],
                         subtitle,
                         regional_characteristics,
