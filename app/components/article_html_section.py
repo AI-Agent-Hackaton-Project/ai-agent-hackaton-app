@@ -43,7 +43,7 @@ def improve_html_styling(html_content):
         font-size: 2.2em;
         margin-bottom: 20px;
         text-align: center;
-        border-bottom: 3px solid #3498db;
+        border-bottom: 3px solid #6f92a9;
         padding-bottom: 15px;
         font-weight: 700;
     }
@@ -53,7 +53,6 @@ def improve_html_styling(html_content):
         font-size: 1.6em;
         margin: 35px 0 20px 0;
         padding-left: 15px;
-        border-left: 5px solid #e74c3c;
         background: linear-gradient(90deg, #f8f9fa 0%, transparent 100%);
         padding: 15px;
         border-radius: 5px;
@@ -218,13 +217,12 @@ def render_title_generation_section(selected_prefecture_name):
         error_occurred = False
         error_message = ""
 
-      
         estimated_sub_images = (
             len(generated_sub_titles)
             if st.session_state.get("sub_titles_generated")
             else 5
         )
-        total_steps = 8 + estimated_sub_images  
+        total_steps = 8 + estimated_sub_images
         completed_steps = 0
 
         st.markdown("---")
@@ -290,7 +288,9 @@ def render_title_generation_section(selected_prefecture_name):
 
                     # --- ステップ2以降: 記事生成 ---
                     stream = generate_article_workflow(
-                        generated_main_title, generated_sub_titles
+                        generated_main_title,
+                        generated_sub_titles,
+                        selected_prefecture_name,
                     )
 
                     for event in stream:
@@ -396,7 +396,6 @@ def render_title_generation_section(selected_prefecture_name):
                 traceback._exc()
 
         # --- 最終結果の表示 ---
-        st.subheader("📄 記事生成結果")
         if error_occurred:
             st.error(
                 f"❌ 「{selected_prefecture_name}」に関する記事の生成に失敗しました。"
