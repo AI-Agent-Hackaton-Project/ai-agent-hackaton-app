@@ -12,7 +12,6 @@ ARTICLE_STYLES = {
         max-width: 900px; 
         margin: 0 auto; 
         background-color: #ffffff;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
         border-radius: 12px;
         overflow: hidden;
         margin-top: 30px;
@@ -35,12 +34,19 @@ ARTICLE_STYLES = {
         font-size: 1.3em; 
         font-style: italic; 
         opacity: 0.9;
-        margin: 20px 0 0 0;
         padding: 20px;
         color: #34495e;
         background: rgba(255,255,255,0.1);
-        border-radius: 8px;
-        border-left: 4px solid rgba(255,255,255,0.3);
+        border-radius: 0 0 8px 8px;
+        border: 2px solid #6f92a9;
+    """,
+    "aphorism_title": """
+        text-align: left;
+        font-size: 1.3rem;
+        margin-top: 20px;
+        font-weight: 600;
+        background: #46607a;
+        padding: 5px 10px;
     """,
     "content": """
         padding: 50px;
@@ -51,7 +57,7 @@ ARTICLE_STYLES = {
         padding: 40px;
         background: #fafbfc;
         border-radius: 8px;
-        border-left: 5px solid #3498db;
+        border-left: 5px solid #6f92a9;
         line-height: 2.0;
     """,
     "subtitle": """
@@ -92,7 +98,6 @@ ARTICLE_STYLES = {
         padding: 20px;
         margin: 20px;
         border-radius: 8px;
-        border-left: 5px solid #e74c3c;
     """,
     "strong": """
         color: #2c3e50;
