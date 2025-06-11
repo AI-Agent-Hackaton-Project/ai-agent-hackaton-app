@@ -1,4 +1,3 @@
-# map_utils.py
 import pydeck as pdk
 from config.constants import JAPAN_BOUNDS
 
