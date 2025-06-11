@@ -405,7 +405,6 @@ def generate_prefecture_image_and_get_path(
 
     # 地域特性を一度だけ生成
     regional_characteristics = _generate_regional_characteristics(llm, prefecture)
-
     # 各サブタイトルに対して画像を生成
     for i, sub_title in enumerate(sub_titles):
         image_number = i + 1
