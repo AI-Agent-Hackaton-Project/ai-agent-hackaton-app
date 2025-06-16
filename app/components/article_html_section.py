@@ -69,7 +69,6 @@ def improve_html_styling(html_content):
     .article-container p {
         margin-bottom: 18px;
         text-align: justify;
-        text-indent: 1em;
     }
     
     .article-container ul, .article-container ol {

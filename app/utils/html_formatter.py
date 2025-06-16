@@ -20,14 +20,22 @@ def process_markdown_text(text: str, text_style: str) -> str:
     paragraphs = text.split("\n\n")
     processed_paragraphs = []
 
-    for paragraph in paragraphs:
+    for i, paragraph in enumerate(paragraphs):
         if paragraph.strip():
-            # 段落内の単一改行を<br>に変換
+            # 段落の先頭と末尾の空白・改行を完全に除去
+            paragraph = paragraph.strip()
+            # 段落内の改行を<br>に変換
             paragraph = paragraph.replace("\n", "<br>")
-            # 段落間により多くの空白を追加
-            processed_paragraphs.append(
-                f'<p style="{text_style} margin-bottom: 30px; margin-top: 15px;">{paragraph}</p>'
-            )
+
+            # 最初の段落は上部マージンを0に、以降は15pxに
+            if i == 0:
+                processed_paragraphs.append(
+                    f'<p style="{text_style} margin-bottom: 30px; margin-top: 0;">{paragraph}</p>'
+                )
+            else:
+                processed_paragraphs.append(
+                    f'<p style="{text_style} margin-bottom: 30px; margin-top: 15px;">{paragraph}</p>'
+                )
 
     return "".join(processed_paragraphs)
 
@@ -38,7 +46,7 @@ def encode_image(image_path: str) -> Optional[str]:
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode("utf-8")
     except Exception as e:
-        (f"画像エンコードエラー: {e}")
+        print(f"画像エンコードエラー: {e}")
         return None
 
 

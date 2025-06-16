@@ -46,7 +46,8 @@ ARTICLE_STYLES = {
         margin-top: 20px;
         font-weight: 600;
         background: #46607a;
-        padding: 5px 10px;
+        padding: 5px 20px;
+        border-radius: 8px 8px 0 0;
     """,
     "content": """
         padding: 50px;
