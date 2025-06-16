@@ -113,6 +113,7 @@ def generate_single_prefecture_data(prefecture_name: str):
 def generate_landscape_comic_prompt(prefecture_name: str) -> str | None:
     """
     選択された都道府県に基づき、風景・物だけの4コマ画像を生成するプロンプトを作成する関数
+    各コマが明確に異なる背景と特色を持つように改善
     """
     if prefecture_name not in prefecture_data_store:
         print(f"   ⚠️ 「{prefecture_name}」のプロンプト用データが見つかりません。")
@@ -121,47 +122,70 @@ def generate_landscape_comic_prompt(prefecture_name: str) -> str | None:
     data = prefecture_data_store[prefecture_name]
     print(f"   🎨 「{prefecture_name}」の4コマ画像用プロンプトを組み立てています...")
 
+    # 各コマのスタイルと構図を明確に分離
+    panel_styles = [
+        "昼間の建築風景, 空と建物のコントラスト",
+        "室内または近接撮影, 温かみのある食事風景",
+        "屋外の自然風景, 広大な景色または季節感",
+        "文化的な装飾または工芸品のクローズアップ",
+    ]
+
+    panel_compositions = [
+        "遠景から中景への構図",
+        "中景から近景への構図",
+        "パノラマまたは広角構図",
+        "アップまたは装飾的構図",
+    ]
+
     prompt = f"""
-※以下を厳守してください。
+Create a 4-panel square comic layout image representing {prefecture_name}, Japan. Each panel must have COMPLETELY DIFFERENT backgrounds, themes, and visual styles.
 
-【1】画像内に**一切の文字を入れないでください。**
-- 日本語・英語を含むすべての言語の文字を禁止します。
-- 背景、看板、建物、商品、標識、ロゴ、装飾文字も禁止です。
-- 画像内に文字が一切ない状態で、{prefecture_name}の風景と物だけを描写してください。
-- もし、文字が含まれている場合は、英語で人間が読めるようにしてください。
+【CRITICAL REQUIREMENTS】
+1. **NO TEXT ANYWHERE** - Absolutely no Japanese, English, or any written characters, signs, or logos
+2. **NO WHITE BORDERS** - Each panel fills completely to the edge with no margins
+3. **4 DISTINCT THEMES** - Each panel represents a different aspect of {prefecture_name}
+4. **HIGH-QUALITY ANIME STYLE** with regional color palette matching {prefecture_name}
 
-【2】白い枠・フチ・余白を**描かないでください。**
-- 各コマはキャンバスの端までしっかりと描写し、空白を作らないでください。
+【PANEL SPECIFICATIONS】
 
-【3】全体のスタイル】
-- その地域がどこか分かるような風景画スタイルでしてください。
-- 配色は{prefecture_name}の地域の雰囲気に合うものにしてください。
-- 4コマ正方形レイアウトで、統一感のある美しい構成にしてください。
-- それぞれ似てない内容で、かつ全体として一貫性のあるテーマを持たせてください。
-- 6コマにはしないでください。各コマの指示を通りに4コマの正方形レイアウトでお願いします。
-- 高画質なアニメ風の画像を生成してください。
+🏛️ **TOP-LEFT PANEL (Landmark/Architecture)**
+Theme: {data["prompts"][0]}
+Visual Style: {panel_styles[0]}
+Composition: {panel_compositions[0]}
+Focus: Iconic buildings, temples, towers, or architectural landmarks of {prefecture_name}
+Background: Clear sky, urban or historic setting
 
-【4】テーマ】
-- 全体のテーマは「{prefecture_name}の{data['theme']}を誰でも分かるような風景と物で表現する」
+🍜 **TOP-RIGHT PANEL (Food/Cuisine)**  
+Theme: {data["prompts"][1]}
+Visual Style: {panel_styles[1]}
+Composition: {panel_compositions[1]}
+Focus: Famous local dishes, ingredients, or food culture of {prefecture_name}
+Background: Restaurant interior, kitchen, or dining atmosphere
 
-【5】各コマの指示】
+🌸 **BOTTOM-LEFT PANEL (Nature/Seasons)**
+Theme: {data["prompts"][2]}
+Visual Style: {panel_styles[2]} 
+Composition: {panel_compositions[2]}
+Focus: Natural landscapes, seasonal beauty, or climate features of {prefecture_name}
+Background: Mountains, forests, rivers, or seasonal scenery
 
-●1コマ目
-{data["prompts"][0]}の内容で「ランドマーク」「名物（料理や伝統工芸品）」「風景（季節感や自然）」「文化的象徴（伝統、祭り、色彩など）」が分かるような画像にしてください。
+🎭 **BOTTOM-RIGHT PANEL (Culture/Tradition)**
+Theme: {data["prompts"][3]}
+Visual Style: {panel_styles[3]}
+Composition: {panel_compositions[3]}  
+Focus: Traditional crafts, festivals, cultural symbols, or regional colors of {prefecture_name}
+Background: Cultural venues, traditional settings, or decorative environments
 
-●2コマ目
-{data["prompts"][1]}の内容を「ランドマーク」「名物（料理や伝統工芸品）」「風景（季節感や自然）」「文化的象徴（伝統、祭り、色彩など）」が分かるような画像にしてください。
+【VISUAL CONSISTENCY】
+- Each panel uses colors that represent {prefecture_name}'s regional identity
+- Lighting and atmosphere should vary between panels (day/indoor/outdoor/artistic)
+- NO people or characters - only landscapes, objects, and scenery
+- Each panel tells a different visual story about {prefecture_name}
 
-●3コマ目
-{data["prompts"][2]}の内容を「ランドマーク」「名物（料理や伝統工芸品）」「風景（季節感や自然）」「文化的象徴（伝統、祭り、色彩など）」が分かるような画像にしてください。
-
-●4コマ目
-{data["prompts"][3]}の内容を「ランドマーク」「名物（料理や伝統工芸品）」「風景（季節感や自然）」「文化的象徴（伝統、祭り、色彩など）」が分かるような画像にしてください。
-
-この1~4コマは「{prefecture_name}の魅力を人物なしでリアルな風景と物だけで表現」することを目的としています。
-**文字なし・人物なしで、{prefecture_name}の美しさと特色を丁寧に描写してください。**
+Generate this as ONE seamless 4-panel square grid image showing the diverse charm of {prefecture_name} through four completely different visual perspectives.
 """
-    print(f"   ✅ 「{prefecture_name}」の画像生成プロンプト完成。")
+
+    print(f"   ✅ 「{prefecture_name}」の多様性重視画像生成プロンプト完成。")
     return prompt.strip()
 
 
@@ -263,7 +287,7 @@ def generate_four_images(prefecture_name: str) -> str | None:
         except Exception as e:
             print(f"   ❌ 画像生成中の予期せぬエラー: {e}")
             return None
-    else:  # このケースは通常、データ生成失敗時に早期リターンするため到達しづらい
+    else:
         print(
             f"   ❌ 「{prefecture_name}」のデータが見つからないため画像生成をスキップします。"
         )
