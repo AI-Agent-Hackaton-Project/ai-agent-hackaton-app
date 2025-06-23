@@ -1,6 +1,6 @@
 # 地図の中の哲学者 🗾
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 [![Google Cloud](https://img.shields.io/badge/Google_Cloud-4285F4?logo=google-cloud&logoColor=white)](https://cloud.google.com/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
 
@@ -267,7 +267,7 @@ docker-compose up
 
 ## 📄 ライセンス
 
-このプロジェクトは [MIT License](LICENSE) の下で公開されています。
+ライセンスについては、プロジェクトオーナーにお問い合わせください。
 
 ## 📞 お問い合わせ
 
